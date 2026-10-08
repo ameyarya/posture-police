@@ -85,11 +85,28 @@ def keypoints_usable(conf_row: np.ndarray, min_conf: float) -> bool:
 
 def crop_center(frame: np.ndarray, zoom: float) -> np.ndarray:
     """Center crop for wide-angle cameras. zoom=1.0 returns the frame."""
-    if zoom <= 1.0:
+    return crop_window(frame, zoom)
+
+
+def crop_window(
+    frame: np.ndarray, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0
+) -> np.ndarray:
+    """Crop a zoomed window, optionally panned toward a side-placed subject.
+
+    zoom=1.0 and pan 0 returns the frame. pan_x/pan_y in [-1, 1] shift the
+    window by that fraction of the available margin; the window is clamped
+    inside the frame.
+    """
+    if zoom <= 1.0 and pan_x == 0 and pan_y == 0:
         return frame
+    zoom = max(zoom, 1.0)
+    pan_x = max(-1.0, min(1.0, pan_x))
+    pan_y = max(-1.0, min(1.0, pan_y))
     h, w = frame.shape[:2]
     cw, ch = int(w / zoom), int(h / zoom)
-    x, y = (w - cw) // 2, (h - ch) // 2
+    margin_x, margin_y = (w - cw) // 2, (h - ch) // 2
+    x = max(0, min(w - cw, margin_x + int(pan_x * margin_x)))
+    y = max(0, min(h - ch, margin_y + int(pan_y * margin_y)))
     return frame[y : y + ch, x : x + cw]
 
 
@@ -108,6 +125,8 @@ class Detector:
         height: int = 480,
         min_conf: float = 0.3,
         zoom: float = 1.0,
+        pan_x: float = 0.0,
+        pan_y: float = 0.0,
     ) -> None:
         self.model_name = model_name
         self.fallback_model = fallback_model
@@ -119,6 +138,8 @@ class Detector:
         self.height = height
         self.min_conf = min_conf
         self.zoom = zoom
+        self.pan_x = pan_x
+        self.pan_y = pan_y
 
         self._lock = threading.Lock()
         self._result = PostureResult("starting", "warming up")
@@ -214,7 +235,7 @@ class Detector:
                     self._set_status("error", "lost webcam frame", 0.0)
                     time.sleep(0.5)
                     continue
-                frame = crop_center(frame, self.zoom)
+                frame = crop_window(frame, self.zoom, self.pan_x, self.pan_y)
                 now = time.monotonic()
                 if self._model is not None and now >= next_run:
                     next_run = now + period

@@ -5,6 +5,9 @@ camera:
   height: 480
   # Digital zoom for wide-angle cameras once you sit centered (1.0 = off).
   zoom: 1.0
+  # Pan the crop toward a side-placed subject, -1..1 (0 = centered).
+  pan_x: 0.0
+  pan_y: 0.0
 inference:
   model: yolo26n-pose
   fallback_model: yolov8n-pose

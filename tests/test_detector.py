@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from posture.detector import crop_center, keypoints_usable
+from posture.detector import crop_center, crop_window, keypoints_usable
 
 
 def conf_row(nose: float, shoulder: float) -> np.ndarray:
@@ -41,6 +41,19 @@ class CropTest(unittest.TestCase):
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         out = crop_center(frame, 2.0)
         self.assertEqual(out.shape, (240, 320, 3))
+
+    def test_pan_right_keeps_right_edge(self):
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        frame[:, 90:] = 255  # bright strip at the right edge
+        out = crop_window(frame, 2.0, pan_x=1.0)
+        self.assertEqual(out.shape, (50, 50, 3))
+        self.assertTrue(np.all(out[:, -10:] == 255))
+        self.assertTrue(np.all(out[:, :10] == 0))
+
+    def test_pan_clamps_inside_frame(self):
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        out = crop_window(frame, 2.0, pan_x=5.0, pan_y=-5.0)
+        self.assertEqual(out.shape, (50, 50, 3))
 
 
 if __name__ == "__main__":

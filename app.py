@@ -64,6 +64,8 @@ detector = Detector(
     height=cfg["camera"]["height"],
     min_conf=cfg["inference"]["min_conf"],
     zoom=cfg["camera"]["zoom"],
+    pan_x=cfg["camera"].get("pan_x", 0.0),
+    pan_y=cfg["camera"].get("pan_y", 0.0),
 )
 tracker = Tracker(
     db_path=cfg["storage"]["db_path"],

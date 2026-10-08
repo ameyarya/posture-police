@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.pt
+*.db
+*.db-journal
+snapshots/

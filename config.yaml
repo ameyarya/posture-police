@@ -1,0 +1,39 @@
+# Posture Police POC configuration. All intervals are tunable without code changes.
+camera:
+  index: 0
+  width: 640
+  height: 480
+
+inference:
+  # Primary nano pose model; falls back to yolov8n-pose if unavailable.
+  model: yolo26n-pose
+  fallback_model: yolov8n-pose
+  fps: 3
+  conf: 0.5
+
+presence:
+  # No person detected for this long counts as getting up from the desk.
+  away_after_seconds: 30
+
+reminders:
+  # Continuous desk time before a get-up reminder fires.
+  desk_minutes: 30
+  sound: true
+
+server:
+  host: 127.0.0.1
+  port: 5000
+
+storage:
+  db_path: posture.db
+
+# Local VLM second opinion (off by default). Uses Ollama on localhost.
+vlm:
+  enabled: false
+  model: qwen3-vl:4b
+  every_minutes: 10
+
+privacy:
+  # Frames stay in memory. Event snapshots are only written when true.
+  save_event_snapshots: false
+  snapshot_dir: snapshots

@@ -1,2 +1,2 @@
-# posture-police
-PosturePolice helps you keep an eye on yourself while you work.
+# Posture Police
+Posture Police helps you keep an eye on yourself while you work.

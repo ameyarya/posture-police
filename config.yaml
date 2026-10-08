@@ -1,6 +1,6 @@
 camera:
-  index: 4
-  prefer_name: ''
+  index: 0
+  prefer_name: 'Nexigo'
   width: 640
   height: 480
   # Digital zoom for wide-angle cameras once you sit centered (1.0 = off).

@@ -54,6 +54,19 @@ class ApiTest(unittest.TestCase):
         jpeg = appmod.placeholder_jpeg()
         self.assertTrue(jpeg.startswith(b"\xff\xd8"))
 
+    def test_pick_port_skips_busy(self):
+        import socket
+
+        busy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        busy.bind(("127.0.0.1", 0))
+        held = busy.getsockname()[1]
+        try:
+            self.assertNotEqual(
+                appmod.pick_port("127.0.0.1", held, tries=3), held
+            )
+        finally:
+            busy.close()
+
     def test_camera_override_needs_restart(self):
         r = self.client.post("/api/settings", json={"camera_index": 2})
         body = json.loads(r.data)

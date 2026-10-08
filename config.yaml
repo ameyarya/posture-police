@@ -24,7 +24,8 @@ reminders:
 
 server:
   host: 127.0.0.1
-  port: 5000
+  # Not 5000: macOS AirPlay Receiver already answers there (HTTP 403).
+  port: 5001
 
 storage:
   db_path: posture.db

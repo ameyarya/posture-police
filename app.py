@@ -190,7 +190,27 @@ def api_remind_ack():
     return jsonify({"ok": True})
 
 
+def pick_port(host: str, base: int, tries: int = 10) -> int:
+    """First free TCP port from base upward. Never guesses in the dark."""
+    import socket
+
+    for port in range(base, base + tries):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind((host, port))
+            except OSError:
+                continue
+            return port
+    raise OSError(f"no free port in {base}..{base + tries - 1}")
+
+
 if __name__ == "__main__":
     detector.start()
     threading.Thread(target=vision_loop, daemon=True).start()
-    app.run(host=cfg["server"]["host"], port=cfg["server"]["port"])
+    port = pick_port(cfg["server"]["host"], int(cfg["server"]["port"]))
+    print(
+        f"Posture Police running - open "
+        f"http://{cfg['server']['host']}:{port} in a browser",
+        flush=True,
+    )
+    app.run(host=cfg["server"]["host"], port=port)

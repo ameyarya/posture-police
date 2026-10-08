@@ -25,6 +25,7 @@
 <body>
 <h1>Posture Police <span id="pill" class="starting">starting</span></h1>
 <p id="detail">warming up…</p>
+<p>Camera: <span id="cam">–</span></p>
 <div id="banner"><b>Time to get up!</b> You have been at your desk for
   <span id="banner-mins"></span> minutes. <button id="ack">I got up</button>
 </div>
@@ -40,8 +41,11 @@
     value="{{ desk_minutes }}"> min</label>
   <label>Away after <input id="away" type="number" min="5" max="600"
     value="{{ away_after }}"> s</label>
+  <label>Camera index <input id="camidx" type="number" min="0" max="8"
+    placeholder="auto()"> (needs restart)</label>
   <button>Save</button>
 </form>
+<p id="restart-note" style="display:none">Camera change saved — restart the app to use it.</p>
 
 <script>
 const pill = document.getElementById('pill');
@@ -74,6 +78,10 @@ async function tick() {
       ? new Date(s.last_get_up * 1000).toLocaleTimeString() : '–';
     document.getElementById('vlm').textContent = s.vlm_note
       ? 'Local VLM note: ' + s.vlm_note : '';
+    if (s.camera) {
+      document.getElementById('cam').textContent =
+        `${s.camera.label} (index ${s.camera.index})`;
+    }
     const banner = document.getElementById('banner');
     if (s.reminder_due) {
       banner.style.display = 'block';
@@ -92,14 +100,20 @@ document.getElementById('ack').onclick = async () => {
 };
 document.getElementById('settings').onsubmit = async (e) => {
   e.preventDefault();
-  await fetch('/api/settings', {
+  const payload = {
+    desk_minutes: parseFloat(document.getElementById('mins').value),
+    away_after_seconds: parseFloat(document.getElementById('away').value),
+  };
+  const camidx = document.getElementById('camidx').value;
+  if (camidx !== '') payload.camera_index = parseInt(camidx, 10);
+  const r = await fetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      desk_minutes: parseFloat(document.getElementById('mins').value),
-      away_after_seconds: parseFloat(document.getElementById('away').value),
-    }),
+    body: JSON.stringify(payload),
   });
+  const out = await r.json();
+  document.getElementById('restart-note').style.display =
+    out.restart_needed ? 'block' : 'none';
   tick();
 };
 setInterval(tick, 2000);

@@ -19,6 +19,7 @@ import yaml
 from flask import Flask, Response, jsonify, render_template, request
 
 from posture import vlm
+from posture import camera as camselect
 from posture.detector import Detector
 from posture.tracker import Tracker
 
@@ -39,12 +40,19 @@ cfg = load_config()
 
 app = Flask(__name__)
 
+cam_index, cam_label, cam_reason = camselect.resolve_camera(
+    prefer_name=cfg["camera"].get("prefer_name", ""),
+    configured_index=cfg["camera"]["index"],
+)
+print(f"camera: {cam_label} (index {cam_index}) - {cam_reason}", flush=True)
+
 detector = Detector(
     model_name=cfg["inference"]["model"],
     fallback_model=cfg["inference"]["fallback_model"],
     conf=cfg["inference"]["conf"],
     inference_fps=cfg["inference"]["fps"],
-    camera_index=cfg["camera"]["index"],
+    camera_index=cam_index,
+    camera_label=cam_label,
     width=cfg["camera"]["width"],
     height=cfg["camera"]["height"],
 )
@@ -109,9 +117,28 @@ def index():
     )
 
 
+def placeholder_jpeg() -> bytes | None:
+    """First-frame stand-in so the stream responds before the camera does."""
+    import cv2
+    import numpy as np
+
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+    cv2.putText(
+        img, "waiting for camera...", (140, 240),
+        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2,
+    )
+    ok, buf = cv2.imencode(".jpg", img)
+    return bytes(buf) if ok else None
+
+
 @app.route("/video_feed")
 def video_feed():
     def frames():
+        first = placeholder_jpeg()
+        if first:
+            yield (
+                b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + first + b"\r\n"
+            )
         while True:
             jpeg = detector.latest_jpeg()
             if jpeg:
@@ -134,6 +161,7 @@ def api_status():
         posture_detail=res.detail,
         posture_conf=res.conf,
         model=detector.model_label,
+        camera={"index": detector.camera_index, "label": detector.camera_label},
         vlm_note=vlm_state["note"],
     )
     return jsonify(out)
@@ -148,8 +176,12 @@ def api_settings():
         val = max(5, float(data["away_after_seconds"]))
         cfg["presence"]["away_after_seconds"] = val
         tracker.away_after = val
+    if "camera_index" in data:
+        # Saved for the next start; the running detector keeps its camera.
+        cfg["camera"]["index"] = int(data["camera_index"])
+        cfg["camera"]["prefer_name"] = ""
     save_config(cfg)
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "restart_needed": "camera_index" in data})
 
 
 @app.route("/api/remind/ack", methods=["POST"])

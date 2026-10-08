@@ -50,6 +50,17 @@ class ApiTest(unittest.TestCase):
         with open("config.yaml") as fh:
             self.assertIn("12", fh.read())
 
+    def test_video_placeholder_is_jpeg(self):
+        jpeg = appmod.placeholder_jpeg()
+        self.assertTrue(jpeg.startswith(b"\xff\xd8"))
+
+    def test_camera_override_needs_restart(self):
+        r = self.client.post("/api/settings", json={"camera_index": 2})
+        body = json.loads(r.data)
+        self.assertTrue(body["restart_needed"])
+        self.assertEqual(appmod.cfg["camera"]["index"], 2)
+        self.assertEqual(appmod.cfg["camera"]["prefer_name"], "")
+
     def test_reminder_flow(self):
         self.client.post("/api/settings", json={"desk_minutes": 1})
         # Pretend the user sat down 61 seconds ago.

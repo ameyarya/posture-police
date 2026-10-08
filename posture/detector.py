@@ -81,6 +81,7 @@ class Detector:
         conf: float = 0.5,
         inference_fps: float = 3.0,
         camera_index: int = 0,
+        camera_label: str = "",
         width: int = 640,
         height: int = 480,
     ) -> None:
@@ -89,6 +90,7 @@ class Detector:
         self.conf = conf
         self.inference_fps = inference_fps
         self.camera_index = camera_index
+        self.camera_label = camera_label or f"camera {camera_index}"
         self.width = width
         self.height = height
 
@@ -173,7 +175,8 @@ class Detector:
             with self._lock:
                 self._result = PostureResult(
                     "error",
-                    "cannot open webcam (grant camera permission and check index)",
+                    f"cannot open {self.camera_label} "
+                    "(grant camera permission and check index)",
                 )
             return
         try:

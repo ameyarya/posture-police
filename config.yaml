@@ -1,6 +1,8 @@
 # Posture Police POC configuration. All intervals are tunable without code changes.
 camera:
   index: 0
+  # When set, the app prefers a camera whose system name contains this text.
+  prefer_name: "Nexigo"
   width: 640
   height: 480
 

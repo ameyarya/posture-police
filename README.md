@@ -1,5 +1,5 @@
-# posture-police
-PosturePolice helps you keep an eye on yourself while you work.
+# Posture Police
+Posture Police helps you keep an eye on yourself while you work.
 
 Local-only Mac POC: your webcam checks sitting posture on-device, tracks desk time and last get-up, and reminds you to stand about every 30 minutes. No images are uploaded to any cloud.
 

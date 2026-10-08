@@ -5,4 +5,21 @@ Local-only Mac POC: your webcam checks sitting posture on-device, tracks desk ti
 
 See [PLAN.md](/Users/am3yarya/Documents/Github/posture-police/PLAN.md) for the approved POC scope: YOLO pose scoring, Flask localhost dashboard, SQLite desk-time tracking, and an optional local Qwen3-VL note via Ollama.
 
-Status: planning complete, implementation not started.
+Status: POC implemented, awaiting live webcam trial.
+
+## Run the POC
+
+From the project root:
+
+    uv venv
+    uv pip install -r requirements.txt
+    source .venv/bin/activate
+    python app.py
+
+Then open http://127.0.0.1:5000 in a browser. Allow camera access when macOS asks.
+
+First launch downloads a ~6 MB nano pose model; afterwards everything runs offline. To check the logic without a camera:
+
+    python -m unittest discover -s tests -v
+
+Tune the reminder interval and away threshold on the dashboard or in `config.yaml`.

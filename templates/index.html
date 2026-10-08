@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Posture Police</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 720px;
+         margin: 2rem auto; padding: 0 1rem; }
+  #pill { display: inline-block; padding: .3rem .8rem; border-radius: 999px;
+          color: #fff; font-weight: 600; }
+  .good { background: #2a9d48; } .slouch { background: #d9822b; }
+  .lean { background: #b45fd0; } .away { background: #6b7280; }
+  .starting, .error { background: #444; }
+  .cards { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: .6rem 1rem;
+          min-width: 150px; }
+  .card b { display: block; font-size: 1.3rem; }
+  #banner { display: none; background: #fff3cd; border: 1px solid #e0b400;
+            border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+  img#live { width: 100%; border-radius: 8px; background: #000; }
+  form label { margin-right: 1rem; }
+</style>
+</head>
+<body>
+<h1>Posture Police <span id="pill" class="starting">starting</span></h1>
+<p id="detail">warming up…</p>
+<div id="banner"><b>Time to get up!</b> You have been at your desk for
+  <span id="banner-mins"></span> minutes. <button id="ack">I got up</button>
+</div>
+<img id="live" src="/video_feed" alt="webcam preview">
+<div class="cards">
+  <div class="card">Desk time today<b id="today">–</b></div>
+  <div class="card">This stretch<b id="stretch">–</b></div>
+  <div class="card">Last got up<b id="lastup">–</b></div>
+</div>
+<p id="vlm"></p>
+<form id="settings">
+  <label>Remind every <input id="mins" type="number" min="1" max="180"
+    value="{{ desk_minutes }}"> min</label>
+  <label>Away after <input id="away" type="number" min="5" max="600"
+    value="{{ away_after }}"> s</label>
+  <button>Save</button>
+</form>
+
+<script>
+const pill = document.getElementById('pill');
+const beeped = { streak: null };
+function fmt(s) {
+  s = Math.floor(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 660; o.start();
+    g.gain.setValueAtTime(0.2, ctx.currentTime);
+    o.stop(ctx.currentTime + 0.5);
+  } catch (e) { /* audio unavailable, banner still shows */ }
+}
+async function tick() {
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    pill.textContent = s.posture;
+    pill.className = s.posture;
+    document.getElementById('detail').textContent = s.posture_detail || '';
+    document.getElementById('today').textContent = fmt(s.desk_today_seconds);
+    document.getElementById('stretch').textContent = fmt(s.continuous_desk_seconds);
+    document.getElementById('lastup').textContent = s.last_get_up
+      ? new Date(s.last_get_up * 1000).toLocaleTimeString() : '–';
+    document.getElementById('vlm').textContent = s.vlm_note
+      ? 'Local VLM note: ' + s.vlm_note : '';
+    const banner = document.getElementById('banner');
+    if (s.reminder_due) {
+      banner.style.display = 'block';
+      document.getElementById('banner-mins').textContent =
+        Math.round(s.continuous_desk_seconds / 60);
+      if (beeped.streak !== true) { beep(); beeped.streak = true; }
+    } else {
+      banner.style.display = 'none';
+      beeped.streak = null;
+    }
+  } catch (e) { /* server restarting, retry next tick */ }
+}
+document.getElementById('ack').onclick = async () => {
+  await fetch('/api/remind/ack', { method: 'POST' });
+  tick();
+};
+document.getElementById('settings').onsubmit = async (e) => {
+  e.preventDefault();
+  await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      desk_minutes: parseFloat(document.getElementById('mins').value),
+      away_after_seconds: parseFloat(document.getElementById('away').value),
+    }),
+  });
+  tick();
+};
+setInterval(tick, 2000);
+tick();
+</script>
+</body>
+</html>

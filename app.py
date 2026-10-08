@@ -62,6 +62,8 @@ detector = Detector(
     camera_label=cam_label,
     width=cfg["camera"]["width"],
     height=cfg["camera"]["height"],
+    min_conf=cfg["inference"]["min_conf"],
+    zoom=cfg["camera"]["zoom"],
 )
 tracker = Tracker(
     db_path=cfg["storage"]["db_path"],

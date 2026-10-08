@@ -1,42 +1,31 @@
-# Posture Police POC configuration. All intervals are tunable without code changes.
 camera:
-  index: 0
-  # When set, the app prefers a camera whose system name contains this text.
-  prefer_name: "Nexigo"
+  index: 4
+  prefer_name: ''
   width: 640
   height: 480
-
+  # Digital zoom for wide-angle cameras once you sit centered (1.0 = off).
+  zoom: 1.0
 inference:
-  # Primary nano pose model; falls back to yolov8n-pose if unavailable.
   model: yolo26n-pose
   fallback_model: yolov8n-pose
   fps: 3
   conf: 0.5
-
+  # Nose/shoulders below this are "person unclear", never scored.
+  min_conf: 0.3
 presence:
-  # No person detected for this long counts as getting up from the desk.
-  away_after_seconds: 30
-
+  away_after_seconds: 30.0
 reminders:
-  # Continuous desk time before a get-up reminder fires.
-  desk_minutes: 30
+  desk_minutes: 30.0
   sound: true
-
 server:
   host: 127.0.0.1
-  # Not 5000: macOS AirPlay Receiver already answers there (HTTP 403).
-  port: 5001
-
+  port: 8080
 storage:
   db_path: posture.db
-
-# Local VLM second opinion (off by default). Uses Ollama on localhost.
 vlm:
   enabled: false
   model: qwen3-vl:4b
   every_minutes: 10
-
 privacy:
-  # Frames stay in memory. Event snapshots are only written when true.
   save_event_snapshots: false
   snapshot_dir: snapshots

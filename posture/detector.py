@@ -71,6 +71,28 @@ def score_pose(kpts: np.ndarray) -> PostureResult:
     return PostureResult("good", "upright")
 
 
+# Keypoints that must be confidently visible before geometry is trusted.
+KEY_CONF_IDS = (NOSE, L_SHOULDER, R_SHOULDER)
+
+
+def keypoints_usable(conf_row: np.ndarray, min_conf: float) -> bool:
+    """True when nose and both shoulders clear the confidence floor."""
+    try:
+        return bool(np.all(np.asarray(conf_row, dtype=float)[list(KEY_CONF_IDS)] >= min_conf))
+    except (IndexError, ValueError, TypeError):
+        return False
+
+
+def crop_center(frame: np.ndarray, zoom: float) -> np.ndarray:
+    """Center crop for wide-angle cameras. zoom=1.0 returns the frame."""
+    if zoom <= 1.0:
+        return frame
+    h, w = frame.shape[:2]
+    cw, ch = int(w / zoom), int(h / zoom)
+    x, y = (w - cw) // 2, (h - ch) // 2
+    return frame[y : y + ch, x : x + cw]
+
+
 class Detector:
     """Owns the camera and the pose model on a background thread."""
 
@@ -84,6 +106,8 @@ class Detector:
         camera_label: str = "",
         width: int = 640,
         height: int = 480,
+        min_conf: float = 0.3,
+        zoom: float = 1.0,
     ) -> None:
         self.model_name = model_name
         self.fallback_model = fallback_model
@@ -93,6 +117,8 @@ class Detector:
         self.camera_label = camera_label or f"camera {camera_index}"
         self.width = width
         self.height = height
+        self.min_conf = min_conf
+        self.zoom = zoom
 
         self._lock = threading.Lock()
         self._result = PostureResult("starting", "warming up")
@@ -188,6 +214,7 @@ class Detector:
                     self._set_status("error", "lost webcam frame", 0.0)
                     time.sleep(0.5)
                     continue
+                frame = crop_center(frame, self.zoom)
                 now = time.monotonic()
                 if self._model is not None and now >= next_run:
                     next_run = now + period
@@ -215,6 +242,13 @@ class Detector:
         if res.keypoints.conf is not None:
             confs = res.keypoints.conf.cpu().numpy()
         mean_conf = float(np.mean(confs[idx])) if confs is not None else 0.0
+        if confs is None or not keypoints_usable(confs[idx], self.min_conf):
+            self._set_status(
+                "away",
+                "person unclear - sit centered in frame",
+                mean_conf,
+            )
+            return
         scored = score_pose(kpts[idx])
         scored.conf = mean_conf
         self._set_status(scored.status, scored.detail, scored.conf)

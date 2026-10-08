@@ -11,6 +11,7 @@ Then open http://127.0.0.1:5000 in a browser.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import time
@@ -26,8 +27,14 @@ from posture.tracker import Tracker
 CONFIG_PATH = "config.yaml"
 
 
-def load_config() -> dict:
-    with open(CONFIG_PATH) as fh:
+def load_config(path: str = CONFIG_PATH) -> dict:
+    if not os.path.exists(path):
+        raise SystemExit(
+            f"error: {path} not found - "
+            "run from the project root (the folder containing app.py), "
+            "e.g. `./run.sh`"
+        )
+    with open(path) as fh:
         return yaml.safe_load(fh)
 
 

@@ -54,6 +54,11 @@ class ApiTest(unittest.TestCase):
         jpeg = appmod.placeholder_jpeg()
         self.assertTrue(jpeg.startswith(b"\xff\xd8"))
 
+    def test_missing_config_points_to_project_root(self):
+        with self.assertRaises(SystemExit) as ctx:
+            appmod.load_config("/nonexistent/config.yaml")
+        self.assertIn("project root", str(ctx.exception))
+
     def test_pick_port_skips_busy(self):
         import socket
 

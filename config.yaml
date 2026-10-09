@@ -1,6 +1,6 @@
 camera:
-  index: 1
-  prefer_name: ''
+  index: 0
+  prefer_name: 'Nexigo'
   width: 1280
   height: 720
   zoom: 1.0

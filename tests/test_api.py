@@ -107,6 +107,12 @@ class ApiTest(unittest.TestCase):
             self.assertIn("label", cam)
             self.assertIn("working", cam)
 
+    def test_cameras_result_is_cached(self):
+        first = json.loads(self.client.get("/api/cameras").data)
+        second = json.loads(self.client.get("/api/cameras").data)
+        self.assertEqual(first, second)
+        self.assertGreater(appmod._cam_cache["at"], 0)
+
     def test_reminder_flow(self):
         self.client.post("/api/settings", json={"desk_minutes": 1})
         # Pretend the user sat down 61 seconds ago.

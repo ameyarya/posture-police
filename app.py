@@ -203,8 +203,15 @@ def api_settings_get():
     )
 
 
+_cam_cache: dict = {"at": 0.0, "data": None}
+CAM_CACHE_TTL = 120.0
+
+
 @app.route("/api/cameras")
 def api_cameras():
+    now = time.time()
+    if _cam_cache["data"] is not None and now - _cam_cache["at"] < CAM_CACHE_TTL:
+        return jsonify(_cam_cache["data"])
     devices = camselect.list_system_cameras()
     if not devices:
         devices = [(i, f"camera {i}") for i in range(4)]
@@ -218,6 +225,7 @@ def api_cameras():
             except Exception:
                 working = False
         out.append({"index": idx, "label": name, "working": working})
+    _cam_cache.update(at=now, data=out)
     return jsonify(out)
 
 

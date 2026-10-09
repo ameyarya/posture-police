@@ -283,11 +283,15 @@ class Detector:
                 self._result = PostureResult(status, detail, conf)
                 self._pending_count = 0
 
-    def _loop(self) -> None:
-        self._load_model()
+    def _open_capture(self) -> cv2.VideoCapture:
         cap = cv2.VideoCapture(self.camera_index)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        return cap
+
+    def _loop(self) -> None:
+        self._load_model()
+        cap = self._open_capture()
         if not cap.isOpened():
             with self._lock:
                 self._result = PostureResult(
@@ -299,12 +303,24 @@ class Detector:
         try:
             period = 1.0 / max(self.inference_fps, 0.5)
             next_run = 0.0
+            failures = 0
             while not self._stop.is_set():
                 ok, frame = cap.read()
                 if not ok:
-                    self._set_status("error", "lost webcam frame", 0.0)
-                    time.sleep(0.5)
+                    failures += 1
+                    self._set_status(
+                        "error", "lost webcam frame - retrying", 0.0
+                    )
+                    time.sleep(1.0)
+                    if failures >= 5:
+                        failures = 0
+                        try:
+                            cap.release()
+                        except Exception:
+                            pass
+                        cap = self._open_capture()
                     continue
+                failures = 0
                 frame = crop_window(frame, self.zoom, self.pan_x, self.pan_y)
                 now = time.monotonic()
                 if self._model is not None and now >= next_run:

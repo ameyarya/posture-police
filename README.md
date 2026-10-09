@@ -16,7 +16,9 @@ From the project root:
     source .venv/bin/activate
     python app.py
 
-Then open the printed URL (default http://127.0.0.1:5001) in a browser. Use port 5000 and macOS AirPlay Receiver answers instead with HTTP 403. Allow camera access when macOS asks.
+Then open the printed URL (default http://127.0.0.1:8080) in a browser. Use port 5000 and macOS AirPlay Receiver answers instead with HTTP 403. Allow camera access when macOS asks.
+
+Sit facing the camera with head and both shoulders in frame, about an arm's length away — half-visible people score as unclear, not as posture.
 
 The app prefers the NexiGo webcam automatically (`camera.prefer_name` in `config.yaml`, resolved against the system camera list). If macOS reports the camera as unauthorized, grant Camera access to your terminal in System Settings → Privacy & Security → Camera, then restart the app. You can override the camera index on the dashboard or with `camera.index` in `config.yaml`.
 

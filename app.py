@@ -298,7 +298,6 @@ def pick_port(host: str, base: int, tries: int = 10) -> int:
 
 
 if __name__ == "__main__":
-    global ALLOW_RESTART
     ALLOW_RESTART = True
     detector.start()
     threading.Thread(target=vision_loop, daemon=True).start()

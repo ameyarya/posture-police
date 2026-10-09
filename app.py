@@ -12,6 +12,7 @@ Then open http://127.0.0.1:5000 in a browser.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -265,18 +266,20 @@ def api_remind_ack():
     return jsonify({"ok": True})
 
 
+ALLOW_RESTART = False
+
+
 @app.route("/api/restart", methods=["POST"])
 def api_restart():
-    """Stop the dev server; run.sh respawns it. Manual start otherwise."""
-    func = request.environ.get("werkzeug.server.shutdown")
-    if func is None:
-        return jsonify({"ok": False, "reason": "dev-server shutdown unavailable"})
+    """Terminate the server; run.sh respawns it. Refuses off-server."""
+    if not ALLOW_RESTART:
+        return jsonify({"ok": False, "reason": "restart only works on a started server"})
 
-    def _shutdown():
+    def _die():
         time.sleep(0.5)
-        func()
+        os.kill(os.getpid(), signal.SIGTERM)
 
-    threading.Thread(target=_shutdown, daemon=True).start()
+    threading.Thread(target=_die, daemon=True).start()
     return jsonify({"ok": True})
 
 
@@ -295,6 +298,8 @@ def pick_port(host: str, base: int, tries: int = 10) -> int:
 
 
 if __name__ == "__main__":
+    global ALLOW_RESTART
+    ALLOW_RESTART = True
     detector.start()
     threading.Thread(target=vision_loop, daemon=True).start()
     port = pick_port(cfg["server"]["host"], int(cfg["server"]["port"]))

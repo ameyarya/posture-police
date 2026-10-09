@@ -1,8 +1,9 @@
 camera:
   index: 0
   prefer_name: 'Nexigo'
-  width: 640
-  height: 480
+  # Native 16:9 mode: requesting 4:3 can make UVC drivers crop the sides.
+  width: 1280
+  height: 720
   # Digital zoom for wide-angle cameras once you sit centered (1.0 = off).
   zoom: 1.0
   # Pan the crop toward a side-placed subject, -1..1 (0 = centered).

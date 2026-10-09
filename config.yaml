@@ -1,6 +1,6 @@
 camera:
   index: 0
-  prefer_name: 'Nexigo'
+  prefer_name: Nexigo
   width: 1280
   height: 720
   zoom: 1.0
@@ -11,10 +11,10 @@ inference:
   fallback_model: yolov8n-pose
   fps: 3
   conf: 0.5
-  min_conf: 0.3
-  head_drop_ratio: 0.6
-  lean_offset_ratio: 0.35
-  tilt_ratio: 0.25
+  min_conf: 0.4
+  head_drop_ratio: 0.95
+  lean_offset_ratio: 0.45
+  tilt_ratio: 0.4
 presence:
   away_after_seconds: 30.0
 reminders:

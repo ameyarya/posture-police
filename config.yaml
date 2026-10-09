@@ -1,12 +1,9 @@
 camera:
-  index: 0
-  prefer_name: 'Nexigo'
-  # Native 16:9 mode: requesting 4:3 can make UVC drivers crop the sides.
+  index: 1
+  prefer_name: ''
   width: 1280
   height: 720
-  # Digital zoom for wide-angle cameras once you sit centered (1.0 = off).
   zoom: 1.0
-  # Pan the crop toward a side-placed subject, -1..1 (0 = centered).
   pan_x: 0.0
   pan_y: 0.0
 inference:
@@ -14,8 +11,10 @@ inference:
   fallback_model: yolov8n-pose
   fps: 3
   conf: 0.5
-  # Nose/shoulders below this are "person unclear", never scored.
   min_conf: 0.3
+  head_drop_ratio: 0.6
+  lean_offset_ratio: 0.35
+  tilt_ratio: 0.25
 presence:
   away_after_seconds: 30.0
 reminders:

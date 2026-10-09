@@ -36,10 +36,10 @@ class PostureResult:
     conf: float = 0.0
 
 
-def score_pose(kpts: np.ndarray) -> PostureResult:
-    """Score one person's keypoints. Pure function, safe to unit test.
+def pose_metrics(kpts: np.ndarray) -> dict | None:
+    """Geometry ratios for one person, or None when unusable.
 
-    kpts is a (17, 2) or (17, 3) array of COCO keypoints in pixels.
+    Pure function. kpts is a (17, 2) or (17, 3) array of COCO keypoints.
     """
     try:
         pts = np.asarray(kpts, dtype=float)
@@ -47,28 +47,84 @@ def score_pose(kpts: np.ndarray) -> PostureResult:
         lsh = pts[L_SHOULDER, :2]
         rsh = pts[R_SHOULDER, :2]
     except (IndexError, ValueError, TypeError):
-        return PostureResult("away", "no usable keypoints")
+        return None
 
     shoulder_width = float(np.linalg.norm(rsh - lsh))
     if shoulder_width < 1e-6:
-        return PostureResult("away", "shoulders not visible")
+        return None
 
     mid_shoulder = (lsh + rsh) / 2.0
-    head_forward = abs(float(nose[0] - mid_shoulder[0])) / shoulder_width
-    head_height = float(mid_shoulder[1] - nose[1]) / shoulder_width
-    tilt = abs(float(lsh[1] - rsh[1])) / shoulder_width
+    return {
+        "head_height": float(mid_shoulder[1] - nose[1]) / shoulder_width,
+        "head_forward": abs(float(nose[0] - mid_shoulder[0])) / shoulder_width,
+        "tilt": abs(float(lsh[1] - rsh[1])) / shoulder_width,
+        "shoulder_width": shoulder_width,
+    }
 
-    if head_height < HEAD_DROP_RATIO:
+
+def score_pose(
+    kpts: np.ndarray,
+    head_drop: float = HEAD_DROP_RATIO,
+    lean_offset: float = HEAD_FORWARD_RATIO,
+    tilt_max: float = SHOULDER_TILT_RATIO,
+) -> PostureResult:
+    """Score one person's keypoints. Pure function, safe to unit test."""
+    m = pose_metrics(kpts)
+    if m is None:
+        return PostureResult("away", "no usable keypoints")
+
+    if m["head_height"] < head_drop:
         return PostureResult(
             "slouch",
-            f"head dropped toward desk (ratio {head_height:.2f})",
+            f"head dropped toward desk (ratio {m['head_height']:.2f})",
         )
-    if head_forward > HEAD_FORWARD_RATIO or tilt > SHOULDER_TILT_RATIO:
+    if m["head_forward"] > lean_offset or m["tilt"] > tilt_max:
         return PostureResult(
             "lean",
-            f"leaning (offset {head_forward:.2f}, tilt {tilt:.2f})",
+            f"leaning (offset {m['head_forward']:.2f}, tilt {m['tilt']:.2f})",
         )
     return PostureResult("good", "upright")
+
+
+# Limb pairs (COCO indices) drawn on the dashboard video overlay.
+SKELETON_PAIRS = (
+    (0, 5), (0, 6), (5, 6),
+    (5, 7), (7, 9), (6, 8), (8, 10),
+    (5, 11), (6, 12), (11, 12),
+    (11, 13), (13, 15), (12, 14), (14, 16),
+)
+
+
+def draw_pose(
+    frame: np.ndarray,
+    kpts_xy: np.ndarray,
+    box_xywh: np.ndarray | None = None,
+) -> np.ndarray:
+    """Draw keypoints, limbs, and box on a frame. Returns the frame."""
+    pts = np.asarray(kpts_xy, dtype=float)
+    h, w = frame.shape[:2]
+
+    def inside(x: float, y: float) -> bool:
+        return 0 <= x < w and 0 <= y < h
+
+    for a, b in SKELETON_PAIRS:
+        xa, ya = pts[a, :2]
+        xb, yb = pts[b, :2]
+        if inside(xa, ya) and inside(xb, yb):
+            cv2.line(frame, (int(xa), int(ya)), (int(xb), int(yb)), (0, 255, 0), 2)
+    for x, y in pts[:, :2]:
+        if inside(x, y):
+            cv2.circle(frame, (int(x), int(y)), 4, (0, 0, 255), -1)
+    if box_xywh is not None:
+        xc, yc, bw, bh = (float(v) for v in box_xywh[:4])
+        cv2.rectangle(
+            frame,
+            (int(xc - bw / 2), int(yc - bh / 2)),
+            (int(xc + bw / 2), int(yc + bh / 2)),
+            (255, 0, 0),
+            2,
+        )
+    return frame
 
 
 # Keypoints that must be confidently visible before geometry is trusted.
@@ -127,6 +183,9 @@ class Detector:
         zoom: float = 1.0,
         pan_x: float = 0.0,
         pan_y: float = 0.0,
+        head_drop: float = HEAD_DROP_RATIO,
+        lean_offset: float = HEAD_FORWARD_RATIO,
+        tilt_max: float = SHOULDER_TILT_RATIO,
     ) -> None:
         self.model_name = model_name
         self.fallback_model = fallback_model
@@ -140,6 +199,12 @@ class Detector:
         self.zoom = zoom
         self.pan_x = pan_x
         self.pan_y = pan_y
+        self.th_drop = head_drop
+        self.th_offset = lean_offset
+        self.th_tilt = tilt_max
+        self._metrics: dict = {}
+        self._ov_kpts: np.ndarray | None = None
+        self._ov_box: np.ndarray | None = None
 
         self._lock = threading.Lock()
         self._result = PostureResult("starting", "warming up")
@@ -178,6 +243,11 @@ class Detector:
     def latest_jpeg(self) -> bytes | None:
         with self._lock:
             return self._jpeg
+
+    @property
+    def metrics(self) -> dict:
+        with self._lock:
+            return dict(self._metrics)
 
     # -- internals ------------------------------------------------------
     def _load_model(self) -> None:
@@ -252,6 +322,10 @@ class Detector:
             return
         if res.keypoints is None or len(res.keypoints) == 0:
             self._set_status("away", "no person in frame", 0.0)
+            with self._lock:
+                self._ov_kpts = None
+                self._ov_box = None
+                self._metrics = {}
             return
         # Largest person wins the POC.
         boxes = res.boxes.xywh.cpu().numpy() if res.boxes is not None else None
@@ -263,6 +337,10 @@ class Detector:
         if res.keypoints.conf is not None:
             confs = res.keypoints.conf.cpu().numpy()
         mean_conf = float(np.mean(confs[idx])) if confs is not None else 0.0
+        with self._lock:
+            self._ov_kpts = kpts[idx].copy()
+            self._ov_box = boxes[idx].copy() if boxes is not None else None
+            self._metrics = pose_metrics(kpts[idx]) or {}
         if confs is None or not keypoints_usable(confs[idx], self.min_conf):
             self._set_status(
                 "away",
@@ -270,11 +348,16 @@ class Detector:
                 mean_conf,
             )
             return
-        scored = score_pose(kpts[idx])
+        scored = score_pose(kpts[idx], self.th_drop, self.th_offset, self.th_tilt)
         scored.conf = mean_conf
         self._set_status(scored.status, scored.detail, scored.conf)
 
     def _store_jpeg(self, frame: np.ndarray) -> None:
+        with self._lock:
+            overlay_kpts = None if self._ov_kpts is None else self._ov_kpts.copy()
+            overlay_box = None if self._ov_box is None else self._ov_box.copy()
+        if overlay_kpts is not None:
+            draw_pose(frame, overlay_kpts, overlay_box)
         small = frame
         if frame.shape[1] > 640:
             scale = 640.0 / frame.shape[1]

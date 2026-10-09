@@ -66,6 +66,9 @@ detector = Detector(
     zoom=cfg["camera"]["zoom"],
     pan_x=cfg["camera"].get("pan_x", 0.0),
     pan_y=cfg["camera"].get("pan_y", 0.0),
+    head_drop=cfg["inference"].get("head_drop_ratio", 0.6),
+    lean_offset=cfg["inference"].get("lean_offset_ratio", 0.35),
+    tilt_max=cfg["inference"].get("tilt_ratio", 0.25),
 )
 tracker = Tracker(
     db_path=cfg["storage"]["db_path"],
@@ -174,7 +177,47 @@ def api_status():
         model=detector.model_label,
         camera={"index": detector.camera_index, "label": detector.camera_label},
         vlm_note=vlm_state["note"],
+        metrics=detector.metrics,
+        thresholds={
+            "head_drop_ratio": detector.th_drop,
+            "lean_offset_ratio": detector.th_offset,
+            "tilt_ratio": detector.th_tilt,
+            "min_conf": detector.min_conf,
+        },
     )
+    return jsonify(out)
+
+
+@app.route("/api/settings")
+def api_settings_get():
+    return jsonify(
+        {
+            "desk_minutes": cfg["reminders"]["desk_minutes"],
+            "away_after_seconds": cfg["presence"]["away_after_seconds"],
+            "camera_index": cfg["camera"]["index"],
+            "head_drop_ratio": detector.th_drop,
+            "lean_offset_ratio": detector.th_offset,
+            "tilt_ratio": detector.th_tilt,
+            "min_conf": detector.min_conf,
+        }
+    )
+
+
+@app.route("/api/cameras")
+def api_cameras():
+    devices = camselect.list_system_cameras()
+    if not devices:
+        devices = [(i, f"camera {i}") for i in range(4)]
+    out = []
+    for idx, name in devices:
+        if idx == detector.camera_index:
+            working = True
+        else:
+            try:
+                working = camselect.can_open(idx)
+            except Exception:
+                working = False
+        out.append({"index": idx, "label": name, "working": working})
     return jsonify(out)
 
 
@@ -191,6 +234,19 @@ def api_settings():
         # Saved for the next start; the running detector keeps its camera.
         cfg["camera"]["index"] = int(data["camera_index"])
         cfg["camera"]["prefer_name"] = ""
+    for key, lo, hi in (
+        ("head_drop_ratio", 0.2, 1.2),
+        ("lean_offset_ratio", 0.1, 0.8),
+        ("tilt_ratio", 0.05, 0.6),
+        ("min_conf", 0.05, 0.9),
+    ):
+        if key in data:
+            cfg["inference"][key] = min(hi, max(lo, float(data[key])))
+    # Calibration applies live; no restart needed.
+    detector.th_drop = cfg["inference"].get("head_drop_ratio", 0.6)
+    detector.th_offset = cfg["inference"].get("lean_offset_ratio", 0.35)
+    detector.th_tilt = cfg["inference"].get("tilt_ratio", 0.25)
+    detector.min_conf = cfg["inference"].get("min_conf", 0.3)
     save_config(cfg)
     return jsonify({"ok": True, "restart_needed": "camera_index" in data})
 

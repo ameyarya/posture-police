@@ -4,7 +4,14 @@ import unittest
 
 import numpy as np
 
-from posture.detector import crop_center, crop_window, keypoints_usable
+from posture.detector import (
+    crop_center,
+    crop_window,
+    draw_pose,
+    keypoints_usable,
+    pose_metrics,
+    score_pose,
+)
 
 
 def conf_row(nose: float, shoulder: float) -> np.ndarray:
@@ -29,6 +36,36 @@ class UsableTest(unittest.TestCase):
         # Mirrors the live NexiGo frame: mean conf ~0.12-0.27, junk geometry.
         row = np.full(17, 0.12)
         self.assertFalse(keypoints_usable(row, 0.3))
+
+
+class MetricsTest(unittest.TestCase):
+    def test_upright_numbers(self):
+        m = pose_metrics(upright_kpts())
+        self.assertAlmostEqual(m["head_height"], 1.5)
+        self.assertAlmostEqual(m["head_forward"], 0.0)
+        self.assertAlmostEqual(m["tilt"], 0.0)
+
+    def test_custom_threshold_respected(self):
+        k = upright_kpts()
+        k[0] = [320, 250]  # head_height = 0.625
+        self.assertEqual(score_pose(k).status, "good")
+        self.assertEqual(score_pose(k, head_drop=0.7).status, "slouch")
+
+    def test_overlay_draws_skeleton(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        out = draw_pose(frame.copy(), upright_kpts())
+        self.assertEqual(out.shape, (480, 640, 3))
+        self.assertGreater(int((out != 0).sum()), 0)
+
+
+def upright_kpts() -> np.ndarray:
+    k = np.zeros((17, 2))
+    k[0] = [320, 180]
+    k[5] = [280, 300]
+    k[6] = [360, 300]
+    k[11] = [285, 430]
+    k[12] = [355, 430]
+    return k
 
 
 class CropTest(unittest.TestCase):

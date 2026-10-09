@@ -41,15 +41,56 @@
     value="{{ desk_minutes }}"> min</label>
   <label>Away after <input id="away" type="number" min="5" max="600"
     value="{{ away_after }}"> s</label>
-  <label>Camera index <input id="camidx" type="number" min="0" max="8"
-    placeholder="auto()"> (needs restart)</label>
+  <label>Camera <select id="camselect"></select> (needs restart)</label>
   <button>Save</button>
 </form>
 <p id="restart-note" style="display:none">Camera change saved — restart the app to use it.</p>
+<fieldset id="calibrate">
+  <legend>Calibrate posture</legend>
+  <p>Live measurement: head height <b id="m-height">–</b>,
+    sideways offset <b id="m-offset">–</b>, shoulder tilt <b id="m-tilt">–</b>.
+    Sit upright, note the numbers, then set each slider just past them.</p>
+  <label>Slouch below <input id="th-drop" type="range" min="0.3" max="1.0"
+    step="0.05"> <span id="th-drop-v"></span></label><br>
+  <label>Lean past <input id="th-offset" type="range" min="0.15" max="0.6"
+    step="0.05"> <span id="th-offset-v"></span></label><br>
+  <label>Tilt past <input id="th-tilt" type="range" min="0.1" max="0.5"
+    step="0.05"> <span id="th-tilt-v"></span></label><br>
+  <label>Min keypoint confidence <input id="th-conf" type="range" min="0.1"
+    max="0.6" step="0.05"> <span id="th-conf-v"></span></label><br>
+  <button id="cal-save" type="button">Save calibration (applies live)</button>
+  <span id="cal-ok" style="display:none">saved</span>
+</fieldset>
+<p><button id="notif-enable" style="display:none">Enable break notifications</button>
+<button id="notif-test" type="button">Send test notification</button></p>
 
 <script>
 const pill = document.getElementById('pill');
-const beeped = { streak: null };
+const reminded = { active: false };
+function notify(title, body) {
+  try {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, { body });
+    }
+  } catch (e) { /* banner + beep still fire */ }
+}
+if ('Notification' in window && Notification.permission === 'default') {
+  const btn = document.getElementById('notif-enable');
+  btn.style.display = 'inline';
+  btn.onclick = async () => {
+    await Notification.requestPermission();
+    btn.style.display = 'none';
+  };
+}
+document.getElementById('notif-test').onclick = () => {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    notify('Posture Police', 'Test notification — break reminders will look like this.');
+  } else if ('Notification' in window) {
+    alert('Allow notifications first with the Enable button.');
+  } else {
+    alert('This browser does not support notifications.');
+  }
+};
 function fmt(s) {
   s = Math.floor(s);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -82,15 +123,26 @@ async function tick() {
       document.getElementById('cam').textContent =
         `${s.camera.label} (index ${s.camera.index})`;
     }
+    if (s.metrics) {
+      const f = (v) => (v === undefined || v === null) ? '–' : v.toFixed(2);
+      document.getElementById('m-height').textContent = f(s.metrics.head_height);
+      document.getElementById('m-offset').textContent = f(s.metrics.head_forward);
+      document.getElementById('m-tilt').textContent = f(s.metrics.tilt);
+    }
     const banner = document.getElementById('banner');
     if (s.reminder_due) {
       banner.style.display = 'block';
       document.getElementById('banner-mins').textContent =
         Math.round(s.continuous_desk_seconds / 60);
-      if (beeped.streak !== true) { beep(); beeped.streak = true; }
+      if (!reminded.active) {
+        reminded.active = true;
+        beep();
+        notify('Posture Police',
+          `You have been at your desk ${Math.round(s.continuous_desk_seconds / 60)} minutes — time to get up!`);
+      }
     } else {
       banner.style.display = 'none';
-      beeped.streak = null;
+      reminded.active = false;
     }
   } catch (e) { /* server restarting, retry next tick */ }
 }
@@ -104,8 +156,8 @@ document.getElementById('settings').onsubmit = async (e) => {
     desk_minutes: parseFloat(document.getElementById('mins').value),
     away_after_seconds: parseFloat(document.getElementById('away').value),
   };
-  const camidx = document.getElementById('camidx').value;
-  if (camidx !== '') payload.camera_index = parseInt(camidx, 10);
+  const chosen = parseInt(document.getElementById('camselect').value, 10);
+  if (chosen !== window._savedCamIdx) payload.camera_index = chosen;
   const r = await fetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -116,8 +168,62 @@ document.getElementById('settings').onsubmit = async (e) => {
     out.restart_needed ? 'block' : 'none';
   tick();
 };
+const sliders = [
+  ['th-drop', 'th-drop-v', 'head_drop_ratio'],
+  ['th-offset', 'th-offset-v', 'lean_offset_ratio'],
+  ['th-tilt', 'th-tilt-v', 'tilt_ratio'],
+  ['th-conf', 'th-conf-v', 'min_conf'],
+];
+for (const [id, vid] of sliders) {
+  const el = document.getElementById(id);
+  el.oninput = () => { document.getElementById(vid).textContent = el.value; };
+}
+document.getElementById('cal-save').onclick = async () => {
+  const payload = {};
+  for (const [id, , key] of sliders) {
+    payload[key] = parseFloat(document.getElementById(id).value);
+  }
+  await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const el = document.getElementById('cal-ok');
+  el.style.display = 'inline';
+  setTimeout(() => { el.style.display = 'none'; }, 2000);
+  tick();
+};
+async function init() {
+  try {
+    const [settings, cameras] = await Promise.all([
+      (await fetch('/api/settings')).json(),
+      (await fetch('/api/cameras')).json(),
+    ]);
+    const sel = document.getElementById('camselect');
+    sel.innerHTML = '';
+    window._savedCamIdx = settings.camera_index;
+    for (const cam of cameras) {
+      const opt = document.createElement('option');
+      opt.value = cam.index;
+      opt.textContent = `${cam.label}${cam.working ? '' : ' (unavailable)'}`;
+      if (cam.index === settings.camera_index) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    const vals = {
+      'th-drop': settings.head_drop_ratio,
+      'th-offset': settings.lean_offset_ratio,
+      'th-tilt': settings.tilt_ratio,
+      'th-conf': settings.min_conf,
+    };
+    for (const [id, vid] of sliders) {
+      document.getElementById(id).value = vals[id];
+      document.getElementById(vid).textContent = vals[id];
+    }
+  } catch (e) { /* server restarting, retry on next tick */ }
+  tick();
+}
 setInterval(tick, 2000);
-tick();
+init();
 </script>
 </body>
 </html>

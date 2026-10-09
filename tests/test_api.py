@@ -32,6 +32,11 @@ class ApiTest(unittest.TestCase):
         t.streak_start = None
         t.last_seen = None
         t.last_reminder = None
+        d = appmod.detector
+        d.th_drop = 0.6
+        d.th_offset = 0.35
+        d.th_tilt = 0.25
+        d.min_conf = 0.3
 
     def test_status_shape(self):
         r = self.client.get("/api/status")
@@ -78,6 +83,29 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(body["restart_needed"])
         self.assertEqual(appmod.cfg["camera"]["index"], 2)
         self.assertEqual(appmod.cfg["camera"]["prefer_name"], "")
+
+    def test_calibration_applies_live(self):
+        r = self.client.post(
+            "/api/settings",
+            json={"head_drop_ratio": 0.75, "lean_offset_ratio": 0.5},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(appmod.detector.th_drop, 0.75)
+        self.assertEqual(appmod.detector.th_offset, 0.5)
+        self.assertEqual(appmod.cfg["inference"]["head_drop_ratio"], 0.75)
+        body = json.loads(self.client.get("/api/settings").data)
+        self.assertEqual(body["head_drop_ratio"], 0.75)
+
+    def test_cameras_endpoint_lists_devices(self):
+        r = self.client.get("/api/cameras")
+        self.assertEqual(r.status_code, 200)
+        body = json.loads(r.data)
+        self.assertIsInstance(body, list)
+        self.assertGreater(len(body), 0)
+        for cam in body:
+            self.assertIn("index", cam)
+            self.assertIn("label", cam)
+            self.assertIn("working", cam)
 
     def test_reminder_flow(self):
         self.client.post("/api/settings", json={"desk_minutes": 1})

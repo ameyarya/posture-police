@@ -265,6 +265,21 @@ def api_remind_ack():
     return jsonify({"ok": True})
 
 
+@app.route("/api/restart", methods=["POST"])
+def api_restart():
+    """Stop the dev server; run.sh respawns it. Manual start otherwise."""
+    func = request.environ.get("werkzeug.server.shutdown")
+    if func is None:
+        return jsonify({"ok": False, "reason": "dev-server shutdown unavailable"})
+
+    def _shutdown():
+        time.sleep(0.5)
+        func()
+
+    threading.Thread(target=_shutdown, daemon=True).start()
+    return jsonify({"ok": True})
+
+
 def pick_port(host: str, base: int, tries: int = 10) -> int:
     """First free TCP port from base upward. Never guesses in the dark."""
     import socket

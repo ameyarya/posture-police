@@ -62,7 +62,8 @@
   <span id="cal-ok" style="display:none">saved</span>
 </fieldset>
 <p><button id="notif-enable" style="display:none">Enable break notifications</button>
-<button id="notif-test" type="button">Send test notification</button></p>
+<button id="notif-test" type="button">Send test notification</button>
+<button id="restart" type="button">Restart server</button></p>
 
 <script>
 const pill = document.getElementById('pill');
@@ -149,6 +150,12 @@ async function tick() {
 document.getElementById('ack').onclick = async () => {
   await fetch('/api/remind/ack', { method: 'POST' });
   tick();
+};
+document.getElementById('restart').onclick = async () => {
+  if (!confirm('Restart the server? This page reconnects on its own.')) return;
+  const r = await fetch('/api/restart', { method: 'POST' });
+  const out = await r.json();
+  alert(out.ok ? 'Restarting — give it a few seconds.' : `No restart: ${out.reason}`);
 };
 document.getElementById('settings').onsubmit = async (e) => {
   e.preventDefault();

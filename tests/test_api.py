@@ -113,6 +113,12 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertGreater(appmod._cam_cache["at"], 0)
 
+    def test_restart_unavailable_off_dev_server(self):
+        r = self.client.post("/api/restart")
+        body = json.loads(r.data)
+        self.assertIn("ok", body)
+        self.assertFalse(body["ok"])
+
     def test_reminder_flow(self):
         self.client.post("/api/settings", json={"desk_minutes": 1})
         # Pretend the user sat down 61 seconds ago.

@@ -8,6 +8,7 @@ from posture.detector import (
     crop_center,
     crop_window,
     draw_pose,
+    follow_window,
     keypoints_usable,
     pose_metrics,
     score_pose,
@@ -91,6 +92,19 @@ class CropTest(unittest.TestCase):
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         out = crop_window(frame, 2.0, pan_x=5.0, pan_y=-5.0)
         self.assertEqual(out.shape, (50, 50, 3))
+
+
+class FollowWindowTest(unittest.TestCase):
+    def test_centres_on_subject(self):
+        self.assertEqual(follow_window(1280, 720, 640), (160, 1120))
+        self.assertEqual(follow_window(1280, 720, 700), (220, 1180))
+
+    def test_clamps_at_edges(self):
+        self.assertEqual(follow_window(1280, 720, 1250), (320, 1280))
+        self.assertEqual(follow_window(1280, 720, 10), (0, 960))
+
+    def test_narrow_frame_is_whole(self):
+        self.assertEqual(follow_window(640, 480, 500), (0, 640))
 
 
 if __name__ == "__main__":

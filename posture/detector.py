@@ -166,6 +166,18 @@ def crop_window(
     return frame[y : y + ch, x : x + cw]
 
 
+def follow_window(width: int, height: int, center_x: float, aspect: float = 4 / 3) -> tuple[int, int]:
+    """Full-height crop [x0, x1) of the given aspect, centred on center_x.
+
+    Pure function. Clamps to the frame; frames already narrower than the
+    aspect come back whole.
+    """
+    cw = min(width, int(round(height * aspect)))
+    x0 = int(round(center_x - cw / 2))
+    x0 = max(0, min(width - cw, x0))
+    return x0, x0 + cw
+
+
 class Detector:
     """Owns the camera and the pose model on a background thread."""
 
@@ -186,6 +198,9 @@ class Detector:
         head_drop: float = HEAD_DROP_RATIO,
         lean_offset: float = HEAD_FORWARD_RATIO,
         tilt_max: float = SHOULDER_TILT_RATIO,
+        preview_fps: float = 10.0,
+        preview_follow: bool = True,
+        preview_mirror: bool = True,
     ) -> None:
         self.model_name = model_name
         self.fallback_model = fallback_model
@@ -202,6 +217,11 @@ class Detector:
         self.th_drop = head_drop
         self.th_offset = lean_offset
         self.th_tilt = tilt_max
+        self.preview_fps = preview_fps
+        self._next_preview = 0.0
+        self.preview_follow = preview_follow
+        self.preview_mirror = preview_mirror
+        self._view_cx: float | None = None
         self._metrics: dict = {}
         self._ov_kpts: np.ndarray | None = None
         self._ov_box: np.ndarray | None = None
@@ -211,6 +231,7 @@ class Detector:
         self._pending_status = "starting"
         self._pending_count = 0
         self._jpeg: bytes | None = None
+        self._jpeg_seq = 0
         self._model = None
         self._model_label = ""
         self._stop = threading.Event()
@@ -243,6 +264,11 @@ class Detector:
     def latest_jpeg(self) -> bytes | None:
         with self._lock:
             return self._jpeg
+
+    def latest_preview(self) -> tuple[int, bytes | None]:
+        """(sequence number, JPEG) so streamers can skip repeated frames."""
+        with self._lock:
+            return self._jpeg_seq, self._jpeg
 
     @property
     def metrics(self) -> dict:
@@ -326,7 +352,10 @@ class Detector:
                 if self._model is not None and now >= next_run:
                     next_run = now + period
                     self._infer(frame)
-                self._store_jpeg(frame)
+                # Encoding is the costly part; only do it at preview rate.
+                if now >= self._next_preview:
+                    self._next_preview = now + 1.0 / max(self.preview_fps, 1.0)
+                    self._store_jpeg(frame)
         finally:
             cap.release()
 
@@ -368,25 +397,36 @@ class Detector:
         scored.conf = mean_conf
         self._set_status(scored.status, scored.detail, scored.conf)
 
+    def _follow_crop(self, frame: np.ndarray, box: np.ndarray | None) -> np.ndarray:
+        """Preview-only crop that eases toward the person; scoring is unaffected."""
+        h, w = frame.shape[:2]
+        target = float(box[0]) if box is not None else w / 2.0
+        if self._view_cx is None:
+            self._view_cx = target
+        # Ease ~15% per preview frame: settles in about a second, no jitter.
+        self._view_cx += 0.15 * (target - self._view_cx)
+        x0, x1 = follow_window(w, h, self._view_cx)
+        return frame[:, x0:x1]
+
     def _store_jpeg(self, frame: np.ndarray) -> None:
         with self._lock:
             overlay_kpts = None if self._ov_kpts is None else self._ov_kpts.copy()
             overlay_box = None if self._ov_box is None else self._ov_box.copy()
         if overlay_kpts is not None:
             draw_pose(frame, overlay_kpts, overlay_box)
+        if self.preview_follow:
+            frame = self._follow_crop(frame, overlay_box)
+        if self.preview_mirror:
+            # Selfie view like Photo Booth; overlay is already drawn.
+            frame = cv2.flip(frame, 1)
         small = frame
         if frame.shape[1] > 640:
             scale = 640.0 / frame.shape[1]
             small = cv2.resize(
                 frame, (640, int(frame.shape[0] * scale))
             )
-        with self._lock:
-            status = self._result.status
-        cv2.putText(
-            small, status, (12, 28),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2,
-        )
-        ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 75])
         if ok:
             with self._lock:
                 self._jpeg = bytes(buf)
+                self._jpeg_seq += 1

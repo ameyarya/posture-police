@@ -4,98 +4,310 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Posture Police</title>
+<link id="favicon" rel="icon" href="data:,">
 <style>
-  body { font-family: -apple-system, system-ui, sans-serif; max-width: 720px;
-         margin: 2rem auto; padding: 0 1rem; }
-  #pill { display: inline-block; padding: .3rem .8rem; border-radius: 999px;
-          color: #fff; font-weight: 600; }
-  .good { background: #2a9d48; } .slouch { background: #d9822b; }
-  .lean { background: #b45fd0; } .away { background: #6b7280; }
-  .starting, .error { background: #444; }
-  .cards { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
-  .card { border: 1px solid #ddd; border-radius: 8px; padding: .6rem 1rem;
-          min-width: 150px; }
-  .card b { display: block; font-size: 1.3rem; }
-  #banner { display: none; background: #fff3cd; border: 1px solid #e0b400;
-            border-radius: 8px; padding: 1rem; margin: 1rem 0; }
-  img#live { width: 100%; border-radius: 8px; background: #000; }
-  form label { margin-right: 1rem; }
+  /* System fonts only: the dashboard makes no outbound requests. */
+  :root {
+    --bg: #f4f5f7; --surface: #ffffff; --surface-2: #eef0f3;
+    --text: #15171a; --muted: #6b7280; --border: #e2e5ea;
+    --good: #16a34a; --slouch: #ea8a1a; --lean: #9b5de5;
+    --away: #8a919c; --error: #dc2626; --starting: #8a919c;
+    --accent: #2563eb; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1114; --surface: #171a1f; --surface-2: #20242b;
+      --text: #e8eaed; --muted: #9098a3; --border: #2a2f37;
+      --good: #22c55e; --slouch: #f59e0b; --lean: #b388f5;
+      --away: #7c8490; --error: #f05252; --starting: #7c8490;
+      --accent: #5b8def; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+  header h1 { flex: none; }
+  header .cam { color: var(--muted); font-size: 13px; margin-left: auto;
+                display: flex; align-items: center; gap: 8px; min-width: 0; }
+  header .cam #cam { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { flex: none; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+  .dot.off { background: var(--error); }
+
+  .banner {
+    display: none; align-items: center; gap: 16px; margin-bottom: 18px;
+    padding: 14px 18px; border-radius: var(--radius);
+    background: var(--slouch); color: #1b1300; font-weight: 500;
+  }
+  .banner.show { display: flex; }
+  .banner b { font-size: 17px; }
+  .banner button { margin-left: auto; background: #1b1300; color: #fff; border: 0; }
+
+  .grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) 340px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+  .card { background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius); box-shadow: var(--shadow); }
+
+  .video { position: relative; overflow: hidden; background: #000; align-self: start; }
+  .video img { display: block; width: 100%; height: auto; min-height: 200px; }
+  .video .paused {
+    position: absolute; inset: 0; display: none; place-items: center;
+    color: #cbd0d6; font-size: 14px;
+  }
+  .video.is-paused .paused { display: grid; }
+  .chip {
+    position: absolute; top: 12px; left: 12px; padding: 5px 12px;
+    border-radius: 999px; font-weight: 600; font-size: 13px; color: #fff;
+    background: var(--c, var(--away)); transition: background .25s;
+  }
+
+  .side { display: flex; flex-direction: column; gap: 18px; }
+  .status { padding: 18px 20px; border-left: 6px solid var(--c, var(--away));
+            transition: border-color .25s; }
+  .status .label { font-size: 28px; font-weight: 700; letter-spacing: -.02em;
+                   color: var(--c, var(--away)); transition: color .25s; }
+  .status .detail { color: var(--muted); margin-top: 2px; min-height: 1.45em; }
+  .confbar { height: 4px; background: var(--surface-2); border-radius: 2px;
+             margin-top: 12px; overflow: hidden; }
+  .confbar i { display: block; height: 100%; width: 0; background: var(--c, var(--away));
+               transition: width .3s, background .25s; }
+
+  .timer { padding: 18px 20px; display: flex; align-items: center; gap: 18px; }
+  .ring { width: 104px; height: 104px; flex: none; }
+  .ring circle { fill: none; stroke-width: 9; }
+  .ring .track { stroke: var(--surface-2); }
+  .ring .prog { stroke: var(--accent); stroke-linecap: round;
+                transform: rotate(-90deg); transform-origin: 50% 50%;
+                transition: stroke-dashoffset .5s linear, stroke .25s; }
+  .ring.due .prog { stroke: var(--slouch); }
+  .ring text { fill: var(--text); font-size: 19px; font-weight: 700;
+               font-variant-numeric: tabular-nums; }
+  .timer .t-title { font-weight: 600; }
+  .timer .t-sub { color: var(--muted); font-size: 13px; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .stats div { padding: 14px 16px; }
+  .stats div + div { border-left: 1px solid var(--border); }
+  .stats span { display: block; color: var(--muted); font-size: 12px; }
+  .stats b { font-size: 18px; font-variant-numeric: tabular-nums; }
+
+  .vlm { padding: 14px 18px; color: var(--muted); display: none; }
+  .vlm.show { display: block; }
+
+  details { margin-top: 18px; }
+  details > summary {
+    cursor: pointer; list-style: none; padding: 14px 20px; font-weight: 600;
+    display: flex; align-items: center; gap: 10px;
+  }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
+  details[open] > summary::before { transform: rotate(90deg); }
+  details > summary small { color: var(--muted); font-weight: 400; }
+  .panel { padding: 0 20px 20px; }
+  .panel p { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+
+  .fields { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: end; }
+  .fields label { display: flex; flex-direction: column; gap: 4px;
+                  font-size: 13px; color: var(--muted); }
+  input[type=number], select {
+    font: inherit; color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
+  }
+  input[type=number] { width: 90px; }
+  button {
+    font: inherit; font-weight: 500; cursor: pointer; padding: 8px 14px;
+    border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:hover { filter: brightness(1.06); }
+  .ok { color: var(--good); font-size: 13px; margin-left: 10px; opacity: 0; transition: opacity .2s; }
+  .ok.show { opacity: 1; }
+
+  .cal { display: grid; grid-template-columns: 170px minmax(0, 1fr) 48px 110px;
+         gap: 10px 14px; align-items: center; margin-bottom: 16px; }
+  @media (max-width: 600px) {
+    .cal { grid-template-columns: minmax(0, 1fr) 48px; }
+    .cal .now { grid-column: 1 / -1; margin-top: -8px; }
+  }
+  .cal .name { font-size: 14px; }
+  .cal input[type=range] { width: 100%; accent-color: var(--accent); }
+  .cal .val { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  .cal .now { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cal .now.pass { color: var(--good); }
+  .cal .now.fail { color: var(--slouch); }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .note { color: var(--slouch); font-size: 13px; display: none; margin-top: 10px; }
 </style>
 </head>
 <body>
-<h1>Posture Police <span id="pill" class="starting">starting</span></h1>
-<p id="detail">warming up…</p>
-<p>Camera: <span id="cam">–</span></p>
-<div id="banner"><b>Time to get up!</b> You have been at your desk for
-  <span id="banner-mins"></span> minutes. <button id="ack">I got up</button>
+<div class="wrap">
+  <header>
+    <h1>Posture Police</h1>
+    <div class="cam"><span class="dot" id="conn"></span><span id="cam">connecting…</span></div>
+  </header>
+
+  <div class="banner" id="banner">
+    <div><b>Time to get up!</b><br>
+      You've been at your desk for <span id="banner-mins">0</span> minutes.</div>
+    <button id="ack" type="button">I got up</button>
+  </div>
+
+  <div class="grid">
+    <div class="card video" id="video">
+      <img id="live" alt="webcam preview">
+      <div class="paused">Preview paused while this tab is hidden</div>
+      <span class="chip" id="chip">starting</span>
+    </div>
+
+    <div class="side">
+      <div class="card status" id="status">
+        <div class="label" id="label">Starting…</div>
+        <div class="detail" id="detail">warming up</div>
+        <div class="confbar" title="pose confidence"><i id="conf"></i></div>
+      </div>
+
+      <div class="card timer">
+        <svg class="ring" id="ring" viewBox="0 0 104 104" aria-hidden="true">
+          <circle class="track" cx="52" cy="52" r="45"></circle>
+          <circle class="prog" id="ring-prog" cx="52" cy="52" r="45"></circle>
+          <text id="ring-text" x="52" y="59" text-anchor="middle">–</text>
+        </svg>
+        <div>
+          <div class="t-title" id="t-title">Until your next break</div>
+          <div class="t-sub" id="t-sub">Reminds every {{ desk_minutes|int }} min</div>
+        </div>
+      </div>
+
+      <div class="card stats">
+        <div><span>Today</span><b id="today">–</b></div>
+        <div><span>This stretch</span><b id="stretch">–</b></div>
+        <div><span>Last up</span><b id="lastup">–</b></div>
+      </div>
+
+      <div class="card vlm" id="vlm"></div>
+    </div>
+  </div>
+
+  <details class="card" id="d-settings">
+    <summary>Settings <small>reminders, camera</small></summary>
+    <form class="panel" id="settings">
+      <div class="fields">
+        <label>Remind every (min)
+          <input id="mins" type="number" min="1" max="180" value="{{ desk_minutes }}"></label>
+        <label>Away after (s)
+          <input id="away" type="number" min="5" max="600" value="{{ away_after }}"></label>
+        <label>Camera <select id="camselect"></select></label>
+        <button class="primary">Save</button><span class="ok" id="set-ok">saved</span>
+      </div>
+      <div class="note" id="restart-note">Camera change saved. Restart the server to switch cameras.</div>
+    </form>
+  </details>
+
+  <details class="card" id="d-cal">
+    <summary>Calibrate posture <small>applies live</small></summary>
+    <div class="panel">
+      <p>Sit upright and watch the "now" values. Set each slider so your upright
+        posture passes with a little margin; green means passing.</p>
+      <div class="cal">
+        <span class="name">Slouch when head height below</span>
+        <input id="th-drop" type="range" min="0.3" max="1.2" step="0.05">
+        <span class="val" id="th-drop-v"></span>
+        <span class="now" id="now-drop">now –</span>
+
+        <span class="name">Lean when sideways offset above</span>
+        <input id="th-offset" type="range" min="0.1" max="0.8" step="0.05">
+        <span class="val" id="th-offset-v"></span>
+        <span class="now" id="now-offset">now –</span>
+
+        <span class="name">Lean when shoulder tilt above</span>
+        <input id="th-tilt" type="range" min="0.05" max="0.6" step="0.05">
+        <span class="val" id="th-tilt-v"></span>
+        <span class="now" id="now-tilt">now –</span>
+
+        <span class="name">Min keypoint confidence</span>
+        <input id="th-conf" type="range" min="0.1" max="0.8" step="0.05">
+        <span class="val" id="th-conf-v"></span>
+        <span class="now" id="now-conf">now –</span>
+      </div>
+      <div class="row">
+        <button class="primary" id="cal-save" type="button">Save calibration</button>
+        <button id="cal-reset" type="button">Revert</button>
+        <span class="ok" id="cal-ok">saved</span>
+      </div>
+    </div>
+  </details>
+
+  <details class="card" id="d-more">
+    <summary>More <small>notifications, server</small></summary>
+    <div class="panel row">
+      <button id="notif-enable" type="button" style="display:none">Enable break notifications</button>
+      <button id="notif-test" type="button">Send test notification</button>
+      <button id="restart" type="button">Restart server</button>
+      <span class="t-sub" id="model"></span>
+    </div>
+  </details>
 </div>
-<img id="live" src="/video_feed" alt="webcam preview">
-<div class="cards">
-  <div class="card">Desk time today<b id="today">–</b></div>
-  <div class="card">This stretch<b id="stretch">–</b></div>
-  <div class="card">Last got up<b id="lastup">–</b></div>
-</div>
-<p id="vlm"></p>
-<form id="settings">
-  <label>Remind every <input id="mins" type="number" min="1" max="180"
-    value="{{ desk_minutes }}"> min</label>
-  <label>Away after <input id="away" type="number" min="5" max="600"
-    value="{{ away_after }}"> s</label>
-  <label>Camera <select id="camselect"></select> (needs restart)</label>
-  <button>Save</button>
-</form>
-<p id="restart-note" style="display:none">Camera change saved — restart the app to use it.</p>
-<fieldset id="calibrate">
-  <legend>Calibrate posture</legend>
-  <p>Live measurement: head height <b id="m-height">–</b>,
-    sideways offset <b id="m-offset">–</b>, shoulder tilt <b id="m-tilt">–</b>.
-    Sit upright, note the numbers, then set each slider just past them.</p>
-  <label>Slouch below <input id="th-drop" type="range" min="0.3" max="1.0"
-    step="0.05"> <span id="th-drop-v"></span></label><br>
-  <label>Lean past <input id="th-offset" type="range" min="0.15" max="0.6"
-    step="0.05"> <span id="th-offset-v"></span></label><br>
-  <label>Tilt past <input id="th-tilt" type="range" min="0.1" max="0.5"
-    step="0.05"> <span id="th-tilt-v"></span></label><br>
-  <label>Min keypoint confidence <input id="th-conf" type="range" min="0.1"
-    max="0.6" step="0.05"> <span id="th-conf-v"></span></label><br>
-  <button id="cal-save" type="button">Save calibration (applies live)</button>
-  <span id="cal-ok" style="display:none">saved</span>
-</fieldset>
-<p><button id="notif-enable" style="display:none">Enable break notifications</button>
-<button id="notif-test" type="button">Send test notification</button>
-<button id="restart" type="button">Restart server</button></p>
 
 <script>
-const pill = document.getElementById('pill');
-const reminded = { active: false };
+const $ = (id) => document.getElementById(id);
+const LABELS = {
+  good: 'Good posture', slouch: 'Slouching', lean: 'Leaning',
+  away: 'Away', starting: 'Starting…', error: 'Camera problem',
+};
+const POLL_VISIBLE = 500, POLL_HIDDEN = 2000;
+const RING_LEN = 2 * Math.PI * 45;
+$('ring-prog').style.strokeDasharray = RING_LEN;
+$('ring-prog').style.strokeDashoffset = RING_LEN;
+
+let online = true, alerted = false, lastPosture = null, saved = {};
+
+// -- helpers ----------------------------------------------------------
+function fmt(s) {
+  s = Math.max(0, Math.floor(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
+function clock(s) {
+  s = Math.max(0, Math.ceil(s));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+function when(ts) {
+  const d = new Date(ts * 1000);
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+function color(posture) {
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(`--${posture}`).trim() || '#888';
+}
+function setFavicon(posture) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const g = c.getContext('2d');
+  g.fillStyle = color(posture);
+  g.beginPath(); g.arc(16, 16, 13, 0, 2 * Math.PI); g.fill();
+  $('favicon').href = c.toDataURL();
+}
+function flash(id) {
+  $(id).classList.add('show');
+  setTimeout(() => $(id).classList.remove('show'), 1800);
+}
 function notify(title, body) {
   try {
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification(title, { body });
     }
   } catch (e) { /* banner + beep still fire */ }
-}
-if ('Notification' in window && Notification.permission === 'default') {
-  const btn = document.getElementById('notif-enable');
-  btn.style.display = 'inline';
-  btn.onclick = async () => {
-    await Notification.requestPermission();
-    btn.style.display = 'none';
-  };
-}
-document.getElementById('notif-test').onclick = () => {
-  if ('Notification' in window && Notification.permission === 'granted') {
-    notify('Posture Police', 'Test notification — break reminders will look like this.');
-  } else if ('Notification' in window) {
-    alert('Allow notifications first with the Enable button.');
-  } else {
-    alert('This browser does not support notifications.');
-  }
-};
-function fmt(s) {
-  s = Math.floor(s);
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-  return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
 }
 function beep() {
   try {
@@ -107,129 +319,221 @@ function beep() {
     o.stop(ctx.currentTime + 0.5);
   } catch (e) { /* audio unavailable, banner still shows */ }
 }
+async function postJSON(url, body) {
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  return r.json();
+}
+
+// -- live preview: stop streaming while the tab is hidden --------------
+function startStream() {
+  $('live').src = '/video_feed?t=' + Date.now();
+  $('video').classList.remove('is-paused');
+}
+function stopStream() {
+  $('live').src = 'data:,';
+  $('video').classList.add('is-paused');
+}
+
+// -- status rendering --------------------------------------------------
+function renderPosture(s) {
+  const p = s.posture in LABELS ? s.posture : 'away';
+  const c = `var(--${p})`;
+  for (const id of ['status', 'chip']) $(id).style.setProperty('--c', c);
+  $('label').textContent = LABELS[p];
+  $('chip').textContent = LABELS[p];
+  $('detail').textContent = s.posture_detail || '';
+  $('conf').style.width = `${Math.round((s.posture_conf || 0) * 100)}%`;
+  if (p !== lastPosture) {
+    lastPosture = p;
+    document.title = `${LABELS[p]} · Posture Police`;
+    setFavicon(p);
+  }
+}
+
+function renderTimer(s) {
+  const total = (s.desk_minutes || 30) * 60;
+  const elapsed = s.continuous_desk_seconds || 0;
+  const present = s.presence === 'present';
+  const frac = present ? Math.min(1, elapsed / total) : 0;
+  $('ring-prog').style.strokeDashoffset = RING_LEN * (1 - frac);
+  $('ring').classList.toggle('due', !!s.reminder_due);
+  if (s.reminder_due) {
+    $('ring-text').textContent = 'now';
+    $('t-title').textContent = 'Break time';
+  } else if (present) {
+    $('ring-text').textContent = clock(total - elapsed);
+    $('t-title').textContent = 'Until your next break';
+  } else {
+    $('ring-text').textContent = clock(total);
+    $('t-title').textContent = 'Timer resets while you are away';
+  }
+  $('t-sub').textContent = `Reminds every ${+s.desk_minutes.toFixed(1)} min`;
+}
+
+function renderReminder(s) {
+  $('banner').classList.toggle('show', !!s.reminder_due);
+  const mins = Math.round((s.continuous_desk_seconds || 0) / 60);
+  $('banner-mins').textContent = mins;
+  if (s.reminder_due && !alerted) {
+    alerted = true;
+    beep();
+    notify('Posture Police', `You've been at your desk ${mins} minutes. Time to get up!`);
+  } else if (!s.reminder_due) {
+    alerted = false;
+  }
+}
+
+function renderCalibration(s) {
+  const m = s.metrics || {};
+  const th = s.thresholds || {};
+  const live = (id, v, passes) => {
+    const el = $(id);
+    if (v === undefined || v === null) {
+      el.textContent = 'now –'; el.className = 'now'; return;
+    }
+    el.textContent = `now ${v.toFixed(2)} ${passes ? '✓' : '✗'}`;
+    el.className = 'now ' + (passes ? 'pass' : 'fail');
+  };
+  // Compare against the slider values so tuning previews before saving.
+  const v = (id, fallback) => parseFloat($(id).value) || fallback;
+  live('now-drop', m.head_height, m.head_height >= v('th-drop', th.head_drop_ratio));
+  live('now-offset', m.head_forward, m.head_forward <= v('th-offset', th.lean_offset_ratio));
+  live('now-tilt', m.tilt, m.tilt <= v('th-tilt', th.tilt_ratio));
+  live('now-conf', m.head_height === undefined ? null : s.posture_conf,
+       s.posture_conf >= v('th-conf', th.min_conf));
+}
+
 async function tick() {
   try {
-    const r = await fetch('/api/status');
-    const s = await r.json();
-    pill.textContent = s.posture;
-    pill.className = s.posture;
-    document.getElementById('detail').textContent = s.posture_detail || '';
-    document.getElementById('today').textContent = fmt(s.desk_today_seconds);
-    document.getElementById('stretch').textContent = fmt(s.continuous_desk_seconds);
-    document.getElementById('lastup').textContent = s.last_get_up
-      ? new Date(s.last_get_up * 1000).toLocaleTimeString() : '–';
-    document.getElementById('vlm').textContent = s.vlm_note
-      ? 'Local VLM note: ' + s.vlm_note : '';
-    if (s.camera) {
-      document.getElementById('cam').textContent =
-        `${s.camera.label} (index ${s.camera.index})`;
+    const s = await (await fetch('/api/status')).json();
+    if (!online) {
+      online = true;
+      $('conn').classList.remove('off');
+      if (!document.hidden) startStream();   // server came back from a restart
     }
-    if (s.metrics) {
-      const f = (v) => (v === undefined || v === null) ? '–' : v.toFixed(2);
-      document.getElementById('m-height').textContent = f(s.metrics.head_height);
-      document.getElementById('m-offset').textContent = f(s.metrics.head_forward);
-      document.getElementById('m-tilt').textContent = f(s.metrics.tilt);
+    if (s.camera) $('cam').textContent = s.camera.label;
+    $('model').textContent = s.model ? `model: ${s.model}` : '';
+    renderPosture(s);
+    renderTimer(s);
+    renderReminder(s);
+    $('today').textContent = fmt(s.desk_today_seconds);
+    $('stretch').textContent = s.presence === 'present' ? fmt(s.continuous_desk_seconds) : '–';
+    $('lastup').textContent = s.last_get_up ? when(s.last_get_up) : '–';
+    $('vlm').classList.toggle('show', !!s.vlm_note);
+    $('vlm').textContent = s.vlm_note ? `Local VLM note: ${s.vlm_note}` : '';
+    if ($('d-cal').open) renderCalibration(s);
+  } catch (e) {
+    if (online) {
+      online = false;
+      $('conn').classList.add('off');
+      $('cam').textContent = 'reconnecting…';
     }
-    const banner = document.getElementById('banner');
-    if (s.reminder_due) {
-      banner.style.display = 'block';
-      document.getElementById('banner-mins').textContent =
-        Math.round(s.continuous_desk_seconds / 60);
-      if (!reminded.active) {
-        reminded.active = true;
-        beep();
-        notify('Posture Police',
-          `You have been at your desk ${Math.round(s.continuous_desk_seconds / 60)} minutes — time to get up!`);
-      }
-    } else {
-      banner.style.display = 'none';
-      reminded.active = false;
-    }
-  } catch (e) { /* server restarting, retry next tick */ }
+  }
 }
-document.getElementById('ack').onclick = async () => {
-  await fetch('/api/remind/ack', { method: 'POST' });
-  tick();
+
+let timer = null;
+function schedule() {
+  clearTimeout(timer);
+  timer = setTimeout(async () => { await tick(); schedule(); },
+    document.hidden ? POLL_HIDDEN : POLL_VISIBLE);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopStream(); else { startStream(); tick(); }
+  schedule();
+});
+
+// -- controls ----------------------------------------------------------
+if ('Notification' in window && Notification.permission === 'default') {
+  const btn = $('notif-enable');
+  btn.style.display = 'inline-block';
+  btn.onclick = async () => { await Notification.requestPermission(); btn.style.display = 'none'; };
+}
+$('notif-test').onclick = () => {
+  if (!('Notification' in window)) return alert('This browser does not support notifications.');
+  if (Notification.permission !== 'granted') return alert('Allow notifications first with the Enable button.');
+  notify('Posture Police', 'Test notification: break reminders will look like this.');
 };
-document.getElementById('restart').onclick = async () => {
+$('ack').onclick = async () => { await postJSON('/api/remind/ack'); tick(); };
+$('restart').onclick = async () => {
   if (!confirm('Restart the server? This page reconnects on its own.')) return;
-  const r = await fetch('/api/restart', { method: 'POST' });
-  const out = await r.json();
-  alert(out.ok ? 'Restarting — give it a few seconds.' : `No restart: ${out.reason}`);
+  const out = await postJSON('/api/restart');
+  if (!out.ok) alert(`No restart: ${out.reason}`);
 };
-document.getElementById('settings').onsubmit = async (e) => {
+$('settings').onsubmit = async (e) => {
   e.preventDefault();
   const payload = {
-    desk_minutes: parseFloat(document.getElementById('mins').value),
-    away_after_seconds: parseFloat(document.getElementById('away').value),
+    desk_minutes: parseFloat($('mins').value),
+    away_after_seconds: parseFloat($('away').value),
   };
-  const chosen = parseInt(document.getElementById('camselect').value, 10);
-  if (chosen !== window._savedCamIdx) payload.camera_index = chosen;
-  const r = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const out = await r.json();
-  document.getElementById('restart-note').style.display =
-    out.restart_needed ? 'block' : 'none';
+  const chosen = parseInt($('camselect').value, 10);
+  if (!Number.isNaN(chosen) && chosen !== saved.camera_index) payload.camera_index = chosen;
+  const out = await postJSON('/api/settings', payload);
+  $('restart-note').style.display = out.restart_needed ? 'block' : 'none';
+  flash('set-ok');
   tick();
 };
-const sliders = [
-  ['th-drop', 'th-drop-v', 'head_drop_ratio'],
-  ['th-offset', 'th-offset-v', 'lean_offset_ratio'],
-  ['th-tilt', 'th-tilt-v', 'tilt_ratio'],
-  ['th-conf', 'th-conf-v', 'min_conf'],
+
+const SLIDERS = [
+  ['th-drop', 'head_drop_ratio'], ['th-offset', 'lean_offset_ratio'],
+  ['th-tilt', 'tilt_ratio'], ['th-conf', 'min_conf'],
 ];
-for (const [id, vid] of sliders) {
-  const el = document.getElementById(id);
-  el.oninput = () => { document.getElementById(vid).textContent = el.value; };
-}
-document.getElementById('cal-save').onclick = async () => {
-  const payload = {};
-  for (const [id, , key] of sliders) {
-    payload[key] = parseFloat(document.getElementById(id).value);
+function setSliders(values) {
+  for (const [id, key] of SLIDERS) {
+    $(id).value = values[key];
+    $(id + '-v').textContent = (+values[key]).toFixed(2);
   }
-  await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const el = document.getElementById('cal-ok');
-  el.style.display = 'inline';
-  setTimeout(() => { el.style.display = 'none'; }, 2000);
+}
+for (const [id] of SLIDERS) {
+  $(id).oninput = () => {
+    $(id + '-v').textContent = (+$(id).value).toFixed(2);
+  };
+}
+$('cal-save').onclick = async () => {
+  const payload = {};
+  for (const [id, key] of SLIDERS) payload[key] = parseFloat($(id).value);
+  await postJSON('/api/settings', payload);
+  Object.assign(saved, payload);
+  flash('cal-ok');
   tick();
 };
-async function init() {
-  try {
-    const [settings, cameras] = await Promise.all([
-      (await fetch('/api/settings')).json(),
-      (await fetch('/api/cameras')).json(),
-    ]);
-    const sel = document.getElementById('camselect');
-    sel.innerHTML = '';
-    window._savedCamIdx = settings.camera_index;
-    for (const cam of cameras) {
-      const opt = document.createElement('option');
-      opt.value = cam.index;
-      opt.textContent = `${cam.label}${cam.working ? '' : ' (unavailable)'}`;
-      if (cam.index === settings.camera_index) opt.selected = true;
-      sel.appendChild(opt);
-    }
-    const vals = {
-      'th-drop': settings.head_drop_ratio,
-      'th-offset': settings.lean_offset_ratio,
-      'th-tilt': settings.tilt_ratio,
-      'th-conf': settings.min_conf,
-    };
-    for (const [id, vid] of sliders) {
-      document.getElementById(id).value = vals[id];
-      document.getElementById(vid).textContent = vals[id];
-    }
-  } catch (e) { /* server restarting, retry on next tick */ }
-  tick();
+$('cal-reset').onclick = () => setSliders(saved);
+
+// Remember which panels are open between visits.
+for (const id of ['d-settings', 'd-cal', 'd-more']) {
+  try { $(id).open = localStorage.getItem(id) === '1'; } catch (e) {}
+  $(id).addEventListener('toggle', () => {
+    try { localStorage.setItem(id, $(id).open ? '1' : '0'); } catch (e) {}
+  });
 }
-setInterval(tick, 2000);
+
+async function loadCameras() {
+  const cameras = await (await fetch('/api/cameras')).json();
+  const sel = $('camselect');
+  sel.innerHTML = '';
+  for (const cam of cameras) {
+    const opt = document.createElement('option');
+    opt.value = cam.index;
+    opt.textContent = `${cam.label}${cam.working ? '' : ' (unavailable)'}`;
+    opt.selected = cam.index === saved.camera_index;
+    sel.appendChild(opt);
+  }
+}
+
+async function init() {
+  setFavicon('starting');
+  if (document.hidden) stopStream(); else startStream();
+  try {
+    saved = await (await fetch('/api/settings')).json();
+    setSliders(saved);
+  } catch (e) { /* server restarting; sliders fill on reload */ }
+  tick();
+  schedule();
+  // Probing cameras can be slow; never block the first paint on it.
+  loadCameras().catch(() => {});
+}
 init();
 </script>
 </body>

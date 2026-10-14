@@ -6,7 +6,7 @@ localhost dashboard. Run from the project root:
     source .venv/bin/activate
     python app.py
 
-Then open http://127.0.0.1:5000 in a browser.
+Then open http://127.0.0.1:8080 in a browser.
 """
 
 from __future__ import annotations
@@ -70,6 +70,9 @@ detector = Detector(
     head_drop=cfg["inference"].get("head_drop_ratio", 0.6),
     lean_offset=cfg["inference"].get("lean_offset_ratio", 0.35),
     tilt_max=cfg["inference"].get("tilt_ratio", 0.25),
+    preview_fps=cfg["camera"].get("preview_fps", 10),
+    preview_follow=cfg["camera"].get("preview_follow", True),
+    preview_mirror=cfg["camera"].get("preview_mirror", True),
 )
 tracker = Tracker(
     db_path=cfg["storage"]["db_path"],
@@ -154,15 +157,18 @@ def video_feed():
             yield (
                 b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + first + b"\r\n"
             )
+        last_seq = -1
+        period = 1.0 / max(detector.preview_fps, 1.0)
         while True:
-            jpeg = detector.latest_jpeg()
-            if jpeg:
+            seq, jpeg = detector.latest_preview()
+            if jpeg and seq != last_seq:
+                last_seq = seq
                 yield (
                     b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                     + jpeg
                     + b"\r\n"
                 )
-            time.sleep(0.2)
+            time.sleep(period / 2)
 
     return Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
@@ -178,6 +184,7 @@ def api_status():
         model=detector.model_label,
         camera={"index": detector.camera_index, "label": detector.camera_label},
         vlm_note=vlm_state["note"],
+        desk_minutes=float(cfg["reminders"]["desk_minutes"]),
         metrics=detector.metrics,
         thresholds={
             "head_drop_ratio": detector.th_drop,
@@ -289,6 +296,9 @@ def pick_port(host: str, base: int, tries: int = 10) -> int:
 
     for port in range(base, base + tries):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            # Match werkzeug: lingering TIME_WAIT sockets from a restarted
+            # server must not push us onto the next port.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 sock.bind((host, port))
             except OSError:

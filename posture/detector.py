@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 
 import cv2
@@ -27,6 +28,10 @@ HEAD_FORWARD_RATIO = 0.35  # nose offset from shoulder centre / shoulder width
 HEAD_DROP_RATIO = 0.60  # nose-above-shoulders distance / shoulder width
 SHOULDER_TILT_RATIO = 0.25  # shoulder height difference / shoulder width
 HYSTERESIS_FRAMES = 3  # consecutive frames required to change posture state
+# Keypoints are median-filtered over this many inferences. Shoulders against
+# a dark chair jump ~100px frame to frame at high confidence; the median
+# drops those outliers (about 1.7 s of history at 3 fps).
+SMOOTH_FRAMES = 5
 
 
 @dataclass
@@ -206,6 +211,11 @@ def key_confidence(conf_row: np.ndarray | None) -> float:
     return float(np.mean(np.asarray(conf_row, dtype=float)[list(KEY_CONF_IDS)]))
 
 
+def smooth_keypoints(history) -> np.ndarray:
+    """Per-coordinate median of recent (17, 2) keypoint arrays. Pure."""
+    return np.median(np.stack([np.asarray(k, dtype=float)[:, :2] for k in history]), axis=0)
+
+
 def crop_center(frame: np.ndarray, zoom: float) -> np.ndarray:
     """Center crop for wide-angle cameras. zoom=1.0 returns the frame."""
     return crop_window(frame, zoom)
@@ -296,6 +306,7 @@ class Detector:
         self._view_cx: float | None = None
         self._metrics: dict = {}
         self._face = False
+        self._kpt_hist: deque = deque(maxlen=SMOOTH_FRAMES)
         self._ov_kpts: np.ndarray | None = None
         self._ov_box: np.ndarray | None = None
 
@@ -454,6 +465,7 @@ class Detector:
             with self._lock:
                 self._face = False
                 self._ov_kpts = None
+                self._kpt_hist.clear()
                 self._ov_box = None
                 self._ov_conf = None
                 self._metrics = {}
@@ -469,10 +481,12 @@ class Detector:
             confs = res.keypoints.conf.cpu().numpy()
         mean_conf = key_confidence(confs[idx] if confs is not None else None)
         with self._lock:
-            self._ov_kpts = kpts[idx].copy()
+            self._kpt_hist.append(kpts[idx].copy())
+            steady = smooth_keypoints(self._kpt_hist)
+            self._ov_kpts = steady
             self._ov_box = boxes[idx].copy() if boxes is not None else None
             self._ov_conf = confs[idx].copy() if confs is not None else None
-            self._metrics = pose_metrics(kpts[idx]) or {}
+            self._metrics = pose_metrics(steady) or {}
             self._face = face_visible(confs[idx] if confs is not None else None)
         if confs is None or not keypoints_usable(confs[idx], self.min_conf):
             box = boxes[idx] if boxes is not None else None
@@ -483,7 +497,7 @@ class Detector:
             )
             self._set_status("unclear", detail, mean_conf)
             return
-        scored = score_pose(kpts[idx], self.th_drop, self.th_offset, self.th_tilt)
+        scored = score_pose(steady, self.th_drop, self.th_offset, self.th_tilt)
         scored.conf = mean_conf
         self._set_status(scored.status, scored.detail, scored.conf)
 

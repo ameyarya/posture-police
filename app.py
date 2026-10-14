@@ -102,7 +102,7 @@ detector = Detector(
     lean_offset=cfg["inference"].get("lean_offset_ratio", 0.35),
     tilt_max=cfg["inference"].get("tilt_ratio", 0.25),
     preview_fps=cfg["camera"].get("preview_fps", 10),
-    preview_follow=cfg["camera"].get("preview_follow", True),
+    preview_follow=cfg["camera"].get("preview_follow", False),
     preview_mirror=cfg["camera"].get("preview_mirror", True),
     preview_overlay=cfg["camera"].get("preview_overlay", True),
     preview_enhance=cfg["camera"].get("preview_enhance", True),
@@ -311,6 +311,7 @@ def api_settings_get():
             "away_after_seconds": cfg["presence"]["away_after_seconds"],
             "posture_alert_seconds": posture_alert.after,
             "preview_overlay": detector.preview_overlay,
+            "preview_follow": detector.preview_follow,
             "camera_index": cfg["camera"]["index"],
             "head_drop_ratio": detector.th_drop,
             "lean_offset_ratio": detector.th_offset,
@@ -359,6 +360,10 @@ def api_settings():
         val = max(0.0, float(data["posture_alert_seconds"]))  # 0 turns it off
         set_setting("reminders", "posture_alert_seconds", val)
         posture_alert.after = val
+    if "preview_follow" in data:
+        val = bool(data["preview_follow"])
+        set_setting("camera", "preview_follow", val)
+        detector.preview_follow = val
     if "preview_overlay" in data:
         val = bool(data["preview_overlay"])
         set_setting("camera", "preview_overlay", val)

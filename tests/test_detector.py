@@ -16,6 +16,7 @@ from posture.detector import (
     keypoints_usable,
     pose_metrics,
     score_pose,
+    smooth_keypoints,
 )
 
 
@@ -128,6 +129,20 @@ class LowLightTest(unittest.TestCase):
         row[[0, 5, 6]] = 0.9  # nose and shoulders seen, legs never are
         self.assertAlmostEqual(key_confidence(row), 0.9)
         self.assertEqual(key_confidence(None), 0.0)
+
+
+class SmoothingTest(unittest.TestCase):
+    def test_median_drops_single_frame_jump(self):
+        base = np.zeros((17, 2))
+        base[5] = [300, 500]
+        jumpy = base.copy()
+        jumpy[5] = [300, 640]  # one outlier frame
+        out = smooth_keypoints([base, base, jumpy, base, base])
+        self.assertEqual(out[5, 1], 500)
+
+    def test_accepts_keypoints_with_confidence_column(self):
+        k = np.ones((17, 3))
+        self.assertEqual(smooth_keypoints([k]).shape, (17, 2))
 
 
 class FaceVisibleTest(unittest.TestCase):

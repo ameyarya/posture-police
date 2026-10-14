@@ -64,7 +64,14 @@
      follow-crop keeps you centred. Stacked layout falls back to 4:3. */
   .video { position: relative; overflow: hidden; background: #000; min-height: 320px; }
   .video img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  @media (max-width: 900px) { .video { aspect-ratio: 4 / 3; min-height: 0; } }
+  /* Full view shows the whole camera frame (what the model sees). */
+  .video.full img { object-fit: contain; }
+  @media (max-width: 900px) {
+    .video { aspect-ratio: 16 / 9; min-height: 0; }
+    .video.follow { aspect-ratio: 4 / 3; }
+  }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-top: 14px; }
+  .check input { width: 16px; height: 16px; accent-color: var(--accent); }
   .video .paused {
     position: absolute; inset: 0; display: none; place-items: center;
     color: #cbd0d6; font-size: 14px;
@@ -295,6 +302,8 @@
         <label>Camera <select id="camselect"></select></label>
         <button class="primary">Save</button><span class="ok" id="set-ok">saved</span>
       </div>
+      <label class="check"><input type="checkbox" id="follow">
+        Follow me in the preview (crops the sides)</label>
       <div class="note" id="restart-note">Camera change saved. Restart the server to switch cameras.</div>
     </form>
   </section>
@@ -610,6 +619,19 @@ $('cal-save').onclick = async () => {
 };
 $('cal-reset').onclick = () => setSliders(saved);
 
+function setFollow() {
+  const follow = saved.preview_follow === true;
+  $('follow').checked = follow;
+  $('video').classList.toggle('follow', follow);
+  $('video').classList.toggle('full', !follow);
+}
+$('follow').onchange = async () => {
+  const next = $('follow').checked;
+  await postJSON('/api/settings', { preview_follow: next });
+  saved.preview_follow = next;
+  setFollow();
+};
+
 function setOverlayLabel() {
   $('ovtoggle').textContent = `Overlay: ${saved.preview_overlay === false ? 'off' : 'on'}`;
 }
@@ -729,6 +751,7 @@ async function init() {
     saved = await (await fetch('/api/settings')).json();
     setSliders(saved);
     setOverlayLabel();
+    setFollow();
   } catch (e) { /* server restarting; sliders fill on reload */ }
   tick();
   schedule();

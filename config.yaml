@@ -7,7 +7,7 @@ camera:
   pan_x: 0.0
   pan_y: 0.0
   preview_fps: 10
-  preview_follow: true
+  preview_follow: false
   preview_mirror: true
   preview_overlay: true
   preview_enhance: true

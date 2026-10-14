@@ -49,6 +49,7 @@
   .banner.show { display: flex; }
   .banner b { font-size: 17px; }
   .banner button { margin-left: auto; background: #1b1300; color: #fff; border: 0; }
+  .banner.posture { background: var(--lean); color: #fff; }
 
   .grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) 340px; }
   @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
@@ -161,6 +162,11 @@
     <button id="ack" type="button">I got up</button>
   </div>
 
+  <div class="banner posture" id="pbanner">
+    <div><b>Sit up straight</b><br>
+      You've been <span id="pbanner-what">slouching</span> for <span id="pbanner-time">1m</span>.</div>
+  </div>
+
   <div class="grid">
     <div class="card video" id="video">
       <img id="live" alt="webcam preview">
@@ -203,6 +209,8 @@
       <div class="fields">
         <label>Remind every (min)
           <input id="mins" type="number" min="1" max="180" value="{{ desk_minutes }}"></label>
+        <label>Posture alert after (s, 0 = off)
+          <input id="palert" type="number" min="0" max="1800" value="{{ posture_alert }}"></label>
         <label>Away after (s)
           <input id="away" type="number" min="5" max="600" value="{{ away_after }}"></label>
         <label>Camera <select id="camselect"></select></label>
@@ -268,7 +276,7 @@ const RING_LEN = 2 * Math.PI * 45;
 $('ring-prog').style.strokeDasharray = RING_LEN;
 $('ring-prog').style.strokeDashoffset = RING_LEN;
 
-let online = true, alerted = false, lastPosture = null, saved = {};
+let online = true, alerted = false, palerted = false, lastPosture = null, saved = {};
 
 // -- helpers ----------------------------------------------------------
 function fmt(s) {
@@ -386,6 +394,19 @@ function renderReminder(s) {
   }
 }
 
+function renderPostureAlert(s) {
+  $('pbanner').classList.toggle('show', !!s.posture_alert);
+  $('pbanner-what').textContent = s.posture === 'lean' ? 'leaning' : 'slouching';
+  $('pbanner-time').textContent = fmt(s.posture_bad_seconds || 0);
+  if (s.posture_alert && !palerted) {
+    palerted = true;
+    beep();
+    notify('Posture Police', `You've been ${$('pbanner-what').textContent} for a while. Sit up straight!`);
+  } else if (!s.posture_alert) {
+    palerted = false;
+  }
+}
+
 function renderCalibration(s) {
   const m = s.metrics || {};
   const th = s.thresholds || {};
@@ -419,6 +440,7 @@ async function tick() {
     renderPosture(s);
     renderTimer(s);
     renderReminder(s);
+    renderPostureAlert(s);
     $('today').textContent = fmt(s.desk_today_seconds);
     $('stretch').textContent = s.presence === 'present' ? fmt(s.continuous_desk_seconds) : '–';
     $('lastup').textContent = s.last_get_up ? when(s.last_get_up) : '–';
@@ -467,6 +489,7 @@ $('settings').onsubmit = async (e) => {
   const payload = {
     desk_minutes: parseFloat($('mins').value),
     away_after_seconds: parseFloat($('away').value),
+    posture_alert_seconds: parseFloat($('palert').value),
   };
   const chosen = parseInt($('camselect').value, 10);
   if (!Number.isNaN(chosen) && chosen !== saved.camera_index) payload.camera_index = chosen;

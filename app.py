@@ -26,6 +26,7 @@ import yaml
 from flask import Flask, Response, jsonify, render_template, request
 
 from posture import vlm
+from posture.alerts import PostureAlert
 from posture import camera as camselect
 from posture.detector import Detector
 from posture.tracker import Tracker
@@ -83,6 +84,10 @@ tracker = Tracker(
     db_path=cfg["storage"]["db_path"],
     away_after_seconds=cfg["presence"]["away_after_seconds"],
 )
+posture_alert = PostureAlert(
+    after_seconds=float(cfg["reminders"].get("posture_alert_seconds", 60)),
+    repeat_seconds=float(cfg["reminders"].get("posture_repeat_minutes", 5)) * 60,
+)
 vlm_state = {"note": None, "ts": None}
 mac_notified_streak: float | None = None
 
@@ -109,6 +114,14 @@ def vision_loop() -> None:
         present = res.status in ("good", "slouch", "lean")
         tracker.update(present)
         now = time.time()
+
+        if posture_alert.update(res.status, tracker.state != "away", now):
+            what = "slouching" if res.status == "slouch" else "leaning"
+            mins = posture_alert.bad_seconds(now) / 60
+            mac_notify(
+                "Posture Police",
+                f"You've been {what} for {mins:.0f} min - sit up straight!",
+            )
 
         desk_minutes = float(cfg["reminders"]["desk_minutes"])
         if tracker.reminder_due(desk_minutes, now):
@@ -137,6 +150,7 @@ def index():
         "index.html",
         desk_minutes=cfg["reminders"]["desk_minutes"],
         away_after=cfg["presence"]["away_after_seconds"],
+        posture_alert=posture_alert.after,
     )
 
 
@@ -190,6 +204,8 @@ def api_status():
         camera={"index": detector.camera_index, "label": detector.camera_label},
         vlm_note=vlm_state["note"],
         desk_minutes=float(cfg["reminders"]["desk_minutes"]),
+        posture_bad_seconds=posture_alert.bad_seconds(time.time()),
+        posture_alert=posture_alert.active(time.time()),
         metrics=detector.metrics,
         thresholds={
             "head_drop_ratio": detector.th_drop,
@@ -207,6 +223,7 @@ def api_settings_get():
         {
             "desk_minutes": cfg["reminders"]["desk_minutes"],
             "away_after_seconds": cfg["presence"]["away_after_seconds"],
+            "posture_alert_seconds": posture_alert.after,
             "camera_index": cfg["camera"]["index"],
             "head_drop_ratio": detector.th_drop,
             "lean_offset_ratio": detector.th_offset,
@@ -251,6 +268,10 @@ def api_settings():
         val = max(5, float(data["away_after_seconds"]))
         cfg["presence"]["away_after_seconds"] = val
         tracker.away_after = val
+    if "posture_alert_seconds" in data:
+        val = max(0.0, float(data["posture_alert_seconds"]))  # 0 turns it off
+        cfg["reminders"]["posture_alert_seconds"] = val
+        posture_alert.after = val
     if "camera_index" in data:
         # Saved for the next start; the running detector keeps its camera.
         cfg["camera"]["index"] = int(data["camera_index"])

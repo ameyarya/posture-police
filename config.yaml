@@ -15,13 +15,15 @@ inference:
   fps: 3
   conf: 0.5
   min_conf: 0.4
-  head_drop_ratio: 0.5
+  head_drop_ratio: 0.4
   lean_offset_ratio: 0.45
   tilt_ratio: 0.4
 presence:
   away_after_seconds: 30.0
 reminders:
-  desk_minutes: 30.0
+  desk_minutes: 25.0
+  posture_alert_seconds: 60.0
+  posture_repeat_minutes: 5.0
   sound: true
 server:
   host: 127.0.0.1

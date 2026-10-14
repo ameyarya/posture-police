@@ -37,6 +37,9 @@ class ApiTest(unittest.TestCase):
         d.th_offset = 0.35
         d.th_tilt = 0.25
         d.min_conf = 0.3
+        appmod.posture_alert.after = float(
+            fresh["reminders"].get("posture_alert_seconds", 60)
+        )
 
     def test_status_shape(self):
         r = self.client.get("/api/status")
@@ -47,6 +50,14 @@ class ApiTest(unittest.TestCase):
             "desk_today_seconds", "last_get_up", "reminder_due",
         ):
             self.assertIn(key, body)
+
+    def test_posture_alert_setting_applies_live(self):
+        r = self.client.post("/api/settings", json={"posture_alert_seconds": 90})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(appmod.posture_alert.after, 90)
+        body = json.loads(self.client.get("/api/status").data)
+        self.assertIn("posture_alert", body)
+        self.assertIn("posture_bad_seconds", body)
 
     def test_settings_roundtrip(self):
         r = self.client.post("/api/settings", json={"desk_minutes": 12})

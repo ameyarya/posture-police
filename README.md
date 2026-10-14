@@ -22,7 +22,7 @@ Sit facing the camera with head and both shoulders in frame, about an arm's leng
 
 The app prefers the NexiGo webcam automatically (`camera.prefer_name` in `config.yaml`, resolved against the system camera list). If macOS reports the camera as unauthorized, grant Camera access to your terminal in System Settings → Privacy & Security → Camera, then restart the app. You can override the camera index on the dashboard or with `camera.index` in `config.yaml`.
 
-First launch downloads a ~6 MB nano pose model; afterwards everything runs offline. To check the logic without a camera:
+The app runs Ultralytics offline (`YOLO_OFFLINE=1`), which also turns off its anonymous usage analytics. If the pose model weights are missing, download them once with `YOLO_OFFLINE=0 python app.py`; afterwards everything runs offline. To check the logic without a camera:
 
     python -m unittest discover -s tests -v
 

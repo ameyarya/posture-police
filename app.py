@@ -17,6 +17,11 @@ import subprocess
 import threading
 import time
 
+# Ultralytics phones home with usage analytics (no images) unless offline.
+# Must be set before ultralytics is imported. YOLO_OFFLINE=0 re-enables
+# network access, e.g. to download missing model weights.
+os.environ.setdefault("YOLO_OFFLINE", "1")
+
 import yaml
 from flask import Flask, Response, jsonify, render_template, request
 

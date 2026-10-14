@@ -168,6 +168,44 @@ def face_visible(conf_row: np.ndarray | None) -> bool:
         return False
 
 
+# Mean luma (0-255) under which a failed read is blamed on lighting.
+DARK_LUMA = 45.0
+# Preview frames darker than this get local contrast lifted (display only;
+# the model scores backlit faces fine, measured ~0.96 key confidence).
+PREVIEW_ENHANCE_BELOW = 110.0
+_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+
+def mean_luma(frame: np.ndarray, box_xywh: np.ndarray | None = None) -> float:
+    """Average brightness, of the person's box when given, else the frame."""
+    region = frame
+    if box_xywh is not None:
+        h, w = frame.shape[:2]
+        xc, yc, bw, bh = (float(v) for v in box_xywh[:4])
+        x0, x1 = max(0, int(xc - bw / 2)), min(w, int(xc + bw / 2))
+        y0, y1 = max(0, int(yc - bh / 2)), min(h, int(yc + bh / 2))
+        if x1 > x0 and y1 > y0:
+            region = frame[y0:y1, x0:x1]
+    return float(cv2.cvtColor(region, cv2.COLOR_BGR2GRAY).mean())
+
+
+def brighten(img: np.ndarray) -> np.ndarray:
+    """Lift shadows with CLAHE on lightness only, so colours stay natural."""
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    lab[:, :, 0] = _CLAHE.apply(lab[:, :, 0])
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
+def key_confidence(conf_row: np.ndarray | None) -> float:
+    """Mean confidence of the keypoints scoring relies on (nose, shoulders).
+
+    Averaging all 17 drags in hips and legs that a desk camera never sees.
+    """
+    if conf_row is None:
+        return 0.0
+    return float(np.mean(np.asarray(conf_row, dtype=float)[list(KEY_CONF_IDS)]))
+
+
 def crop_center(frame: np.ndarray, zoom: float) -> np.ndarray:
     """Center crop for wide-angle cameras. zoom=1.0 returns the frame."""
     return crop_window(frame, zoom)
@@ -231,6 +269,7 @@ class Detector:
         preview_follow: bool = True,
         preview_mirror: bool = True,
         preview_overlay: bool = True,
+        preview_enhance: bool = True,
     ) -> None:
         self.model_name = model_name
         self.fallback_model = fallback_model
@@ -252,6 +291,7 @@ class Detector:
         self.preview_follow = preview_follow
         self.preview_mirror = preview_mirror
         self.preview_overlay = preview_overlay
+        self.preview_enhance = preview_enhance
         self._ov_conf: np.ndarray | None = None
         self._view_cx: float | None = None
         self._metrics: dict = {}
@@ -405,7 +445,12 @@ class Detector:
             self._set_status("error", f"inference failed: {exc}", 0.0)
             return
         if res.keypoints is None or len(res.keypoints) == 0:
-            self._set_status("absent", "no one in frame", 0.0)
+            detail = (
+                "too dark to see anyone - add light in front of you"
+                if mean_luma(frame) < DARK_LUMA
+                else "no one in frame"
+            )
+            self._set_status("absent", detail, 0.0)
             with self._lock:
                 self._face = False
                 self._ov_kpts = None
@@ -422,7 +467,7 @@ class Detector:
         confs = None
         if res.keypoints.conf is not None:
             confs = res.keypoints.conf.cpu().numpy()
-        mean_conf = float(np.mean(confs[idx])) if confs is not None else 0.0
+        mean_conf = key_confidence(confs[idx] if confs is not None else None)
         with self._lock:
             self._ov_kpts = kpts[idx].copy()
             self._ov_box = boxes[idx].copy() if boxes is not None else None
@@ -430,18 +475,25 @@ class Detector:
             self._metrics = pose_metrics(kpts[idx]) or {}
             self._face = face_visible(confs[idx] if confs is not None else None)
         if confs is None or not keypoints_usable(confs[idx], self.min_conf):
-            self._set_status(
-                "unclear",
-                "can't see head and shoulders clearly - sit centered in frame",
-                mean_conf,
+            box = boxes[idx] if boxes is not None else None
+            detail = (
+                "too dark to read your pose - add light in front of you"
+                if mean_luma(frame, box) < DARK_LUMA
+                else "can't see head and shoulders clearly - sit centered in frame"
             )
+            self._set_status("unclear", detail, mean_conf)
             return
         scored = score_pose(kpts[idx], self.th_drop, self.th_offset, self.th_tilt)
         scored.conf = mean_conf
         self._set_status(scored.status, scored.detail, scored.conf)
 
-    def _follow_crop(self, frame: np.ndarray, box: np.ndarray | None) -> np.ndarray:
-        """Preview-only crop that eases toward the person; scoring is unaffected."""
+    def _follow_crop(
+        self, frame: np.ndarray, box: np.ndarray | None
+    ) -> tuple[np.ndarray, int]:
+        """Preview-only crop that eases toward the person; scoring is unaffected.
+
+        Returns the crop and its left edge, for shifting the overlay.
+        """
         h, w = frame.shape[:2]
         target = float(box[0]) if box is not None else w / 2.0
         if self._view_cx is None:
@@ -449,26 +501,35 @@ class Detector:
         # Ease ~15% per preview frame: settles in about a second, no jitter.
         self._view_cx += 0.15 * (target - self._view_cx)
         x0, x1 = follow_window(w, h, self._view_cx)
-        return frame[:, x0:x1]
+        return frame[:, x0:x1], x0
 
     def _store_jpeg(self, frame: np.ndarray) -> None:
         with self._lock:
             overlay_kpts = None if self._ov_kpts is None else self._ov_kpts.copy()
             overlay_box = None if self._ov_box is None else self._ov_box.copy()
             overlay_conf = None if self._ov_conf is None else self._ov_conf.copy()
-        if self.preview_overlay and overlay_kpts is not None:
-            draw_pose(frame, overlay_kpts, overlay_box, overlay_conf, self.min_conf)
+        # Crop and shrink first so brightening and drawing work on the small
+        # preview; the overlay is mapped into the cropped, scaled frame.
+        x0 = 0
         if self.preview_follow:
-            frame = self._follow_crop(frame, overlay_box)
-        if self.preview_mirror:
-            # Selfie view like Photo Booth; overlay is already drawn.
-            frame = cv2.flip(frame, 1)
+            frame, x0 = self._follow_crop(frame, overlay_box)
+        scale = 1.0
         small = frame
         if frame.shape[1] > 640:
             scale = 640.0 / frame.shape[1]
-            small = cv2.resize(
-                frame, (640, int(frame.shape[0] * scale))
-            )
+            small = cv2.resize(frame, (640, int(frame.shape[0] * scale)))
+        if self.preview_enhance and mean_luma(small) < PREVIEW_ENHANCE_BELOW:
+            small = brighten(small)
+        if self.preview_overlay and overlay_kpts is not None:
+            kpts = (overlay_kpts[:, :2] - [x0, 0]) * scale
+            box = None
+            if overlay_box is not None:
+                xc, yc, bw, bh = (float(v) for v in overlay_box[:4])
+                box = np.array([(xc - x0) * scale, yc * scale, bw * scale, bh * scale])
+            draw_pose(small, kpts, box, overlay_conf, self.min_conf)
+        if self.preview_mirror:
+            # Selfie view like Photo Booth; overlay is already drawn.
+            small = cv2.flip(small, 1)
         ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 75])
         if ok:
             with self._lock:

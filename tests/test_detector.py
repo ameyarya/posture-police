@@ -8,7 +8,10 @@ from posture.detector import (
     crop_center,
     crop_window,
     draw_pose,
+    brighten,
     face_visible,
+    key_confidence,
+    mean_luma,
     follow_window,
     keypoints_usable,
     pose_metrics,
@@ -106,6 +109,25 @@ class OverlayConfidenceTest(unittest.TestCase):
         conf[0] = 0.9
         draw_pose(frame, kpts, None, conf, min_conf=0.4)
         self.assertGreater(int(frame.sum()), 0)
+
+
+class LowLightTest(unittest.TestCase):
+    def test_brighten_lifts_dark_frames(self):
+        rng = np.random.default_rng(0)
+        dark = rng.integers(0, 40, (120, 160, 3), dtype=np.uint8)
+        self.assertGreater(mean_luma(brighten(dark)), mean_luma(dark) + 10)
+
+    def test_mean_luma_uses_box_region(self):
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        frame[40:60, 40:60] = 200
+        self.assertAlmostEqual(mean_luma(frame, np.array([50, 50, 20, 20])), 200, delta=1)
+        self.assertLess(mean_luma(frame), 20)
+
+    def test_key_confidence_ignores_legs(self):
+        row = np.zeros(17)
+        row[[0, 5, 6]] = 0.9  # nose and shoulders seen, legs never are
+        self.assertAlmostEqual(key_confidence(row), 0.9)
+        self.assertEqual(key_confidence(None), 0.0)
 
 
 class FaceVisibleTest(unittest.TestCase):

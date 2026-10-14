@@ -10,6 +10,7 @@ camera:
   preview_follow: true
   preview_mirror: true
   preview_overlay: true
+  preview_enhance: true
 inference:
   model: yolo26n-pose
   fallback_model: yolov8n-pose

@@ -105,6 +105,7 @@ detector = Detector(
     preview_follow=cfg["camera"].get("preview_follow", True),
     preview_mirror=cfg["camera"].get("preview_mirror", True),
     preview_overlay=cfg["camera"].get("preview_overlay", True),
+    preview_enhance=cfg["camera"].get("preview_enhance", True),
 )
 tracker = Tracker(
     db_path=cfg["storage"]["db_path"],

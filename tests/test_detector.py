@@ -8,6 +8,7 @@ from posture.detector import (
     crop_center,
     crop_window,
     draw_pose,
+    face_visible,
     follow_window,
     keypoints_usable,
     pose_metrics,
@@ -92,6 +93,21 @@ class CropTest(unittest.TestCase):
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         out = crop_window(frame, 2.0, pan_x=5.0, pan_y=-5.0)
         self.assertEqual(out.shape, (50, 50, 3))
+
+
+class FaceVisibleTest(unittest.TestCase):
+    def test_any_confident_face_point_counts(self):
+        row = np.zeros(17)
+        row[3] = 0.6  # left ear only, e.g. head turned
+        self.assertTrue(face_visible(row))
+
+    def test_body_without_face_is_not_present(self):
+        row = np.full(17, 0.9)
+        row[:5] = 0.1
+        self.assertFalse(face_visible(row))
+
+    def test_no_confidences(self):
+        self.assertFalse(face_visible(None))
 
 
 class FollowWindowTest(unittest.TestCase):

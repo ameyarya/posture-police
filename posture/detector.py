@@ -31,7 +31,7 @@ HYSTERESIS_FRAMES = 3  # consecutive frames required to change posture state
 
 @dataclass
 class PostureResult:
-    status: str  # good | slouch | lean | away | starting | error
+    status: str  # good | slouch | lean | unclear | absent | starting | error
     detail: str = ""
     conf: float = 0.0
 
@@ -71,7 +71,7 @@ def score_pose(
     """Score one person's keypoints. Pure function, safe to unit test."""
     m = pose_metrics(kpts)
     if m is None:
-        return PostureResult("away", "no usable keypoints")
+        return PostureResult("unclear", "no usable keypoints")
 
     if m["head_height"] < head_drop:
         return PostureResult(
@@ -129,12 +129,28 @@ def draw_pose(
 
 # Keypoints that must be confidently visible before geometry is trusted.
 KEY_CONF_IDS = (NOSE, L_SHOULDER, R_SHOULDER)
+FACE_IDS = (0, 1, 2, 3, 4)  # nose, eyes, ears
+FACE_CONF = 0.25  # any face keypoint this confident counts as a face
 
 
 def keypoints_usable(conf_row: np.ndarray, min_conf: float) -> bool:
     """True when nose and both shoulders clear the confidence floor."""
     try:
         return bool(np.all(np.asarray(conf_row, dtype=float)[list(KEY_CONF_IDS)] >= min_conf))
+    except (IndexError, ValueError, TypeError):
+        return False
+
+
+def face_visible(conf_row: np.ndarray | None) -> bool:
+    """True when any face keypoint is confidently detected.
+
+    Presence is judged on the face, not on scoreable posture: someone
+    seated but half out of frame is still at the desk.
+    """
+    if conf_row is None:
+        return False
+    try:
+        return bool(np.max(np.asarray(conf_row, dtype=float)[list(FACE_IDS)]) >= FACE_CONF)
     except (IndexError, ValueError, TypeError):
         return False
 
@@ -223,6 +239,7 @@ class Detector:
         self.preview_mirror = preview_mirror
         self._view_cx: float | None = None
         self._metrics: dict = {}
+        self._face = False
         self._ov_kpts: np.ndarray | None = None
         self._ov_box: np.ndarray | None = None
 
@@ -269,6 +286,12 @@ class Detector:
         """(sequence number, JPEG) so streamers can skip repeated frames."""
         with self._lock:
             return self._jpeg_seq, self._jpeg
+
+    @property
+    def face_visible(self) -> bool:
+        """Latest inference saw a face; drives desk presence."""
+        with self._lock:
+            return self._face
 
     @property
     def metrics(self) -> dict:
@@ -366,8 +389,9 @@ class Detector:
             self._set_status("error", f"inference failed: {exc}", 0.0)
             return
         if res.keypoints is None or len(res.keypoints) == 0:
-            self._set_status("away", "no person in frame", 0.0)
+            self._set_status("absent", "no one in frame", 0.0)
             with self._lock:
+                self._face = False
                 self._ov_kpts = None
                 self._ov_box = None
                 self._metrics = {}
@@ -386,10 +410,11 @@ class Detector:
             self._ov_kpts = kpts[idx].copy()
             self._ov_box = boxes[idx].copy() if boxes is not None else None
             self._metrics = pose_metrics(kpts[idx]) or {}
+            self._face = face_visible(confs[idx] if confs is not None else None)
         if confs is None or not keypoints_usable(confs[idx], self.min_conf):
             self._set_status(
-                "away",
-                "person unclear - sit centered in frame",
+                "unclear",
+                "can't see head and shoulders clearly - sit centered in frame",
                 mean_conf,
             )
             return

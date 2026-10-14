@@ -111,8 +111,7 @@ def vision_loop() -> None:
     last_vlm = 0.0
     while True:
         res = detector.result
-        present = res.status in ("good", "slouch", "lean")
-        tracker.update(present)
+        tracker.update(detector.face_visible)
         now = time.time()
 
         if posture_alert.update(res.status, tracker.state != "away", now):
@@ -133,7 +132,7 @@ def vision_loop() -> None:
                     f"{desk_minutes:g} min at your desk - time to get up!",
                 )
 
-        if vlm_cfg.get("enabled") and res.status != "away":
+        if vlm_cfg.get("enabled") and res.status in ("good", "slouch", "lean"):
             every = float(vlm_cfg.get("every_minutes", 10)) * 60
             jpeg = detector.latest_jpeg()
             if jpeg and now - last_vlm > every:
@@ -204,6 +203,7 @@ def api_status():
         camera={"index": detector.camera_index, "label": detector.camera_label},
         vlm_note=vlm_state["note"],
         desk_minutes=float(cfg["reminders"]["desk_minutes"]),
+        away_after_seconds=float(cfg["presence"]["away_after_seconds"]),
         posture_bad_seconds=posture_alert.bad_seconds(time.time()),
         posture_alert=posture_alert.active(time.time()),
         metrics=detector.metrics,

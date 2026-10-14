@@ -19,7 +19,7 @@ inference:
   lean_offset_ratio: 0.45
   tilt_ratio: 0.4
 presence:
-  away_after_seconds: 30.0
+  away_after_seconds: 60.0
 reminders:
   desk_minutes: 25.0
   posture_alert_seconds: 60.0

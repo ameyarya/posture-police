@@ -40,8 +40,8 @@ class ScorePoseTest(unittest.TestCase):
         k[0] = [250, 180]  # head far left of shoulder centre
         self.assertEqual(score_pose(k).status, "lean")
 
-    def test_missing_keypoints_is_away(self):
-        self.assertEqual(score_pose(np.zeros((17, 2))).status, "away")
+    def test_missing_keypoints_is_unclear(self):
+        self.assertEqual(score_pose(np.zeros((17, 2))).status, "unclear")
 
 
 class TrackerTest(unittest.TestCase):

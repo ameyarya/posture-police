@@ -37,13 +37,13 @@ class PostureAlertTest(unittest.TestCase):
     def test_leaving_desk_resets(self):
         a = PostureAlert(after_seconds=60)
         a.update("slouch", True, 0)
-        a.update("away", False, 30)
+        a.update("absent", False, 30)
         self.assertFalse(a.update("slouch", True, 65))
 
     def test_unclear_blip_keeps_stretch_but_never_fires(self):
         a = PostureAlert(after_seconds=60)
         a.update("slouch", True, 0)
-        self.assertFalse(a.update("away", True, 61))  # unclear, still seated
+        self.assertFalse(a.update("unclear", True, 61))  # still seated
         self.assertFalse(a.active(61))
         self.assertTrue(a.update("slouch", True, 62))
 

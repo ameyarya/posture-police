@@ -12,6 +12,7 @@
     --text: #15171a; --muted: #6b7280; --border: #e2e5ea;
     --good: #16a34a; --slouch: #ea8a1a; --lean: #9b5de5;
     --away: #8a919c; --error: #dc2626; --starting: #8a919c;
+    --unclear: #6b8aa8; --absent: #8a919c;
     --accent: #2563eb; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
     --radius: 14px;
   }
@@ -21,6 +22,7 @@
       --text: #e8eaed; --muted: #9098a3; --border: #2a2f37;
       --good: #22c55e; --slouch: #f59e0b; --lean: #b388f5;
       --away: #7c8490; --error: #f05252; --starting: #7c8490;
+      --unclear: #7b9bbb; --absent: #7c8490;
       --accent: #5b8def; --shadow: none;
     }
   }
@@ -270,6 +272,7 @@ const $ = (id) => document.getElementById(id);
 const LABELS = {
   good: 'Good posture', slouch: 'Slouching', lean: 'Leaning',
   away: 'Away', starting: 'Starting…', error: 'Camera problem',
+  unclear: "Can't see you clearly", absent: 'Out of frame',
 };
 const POLL_VISIBLE = 500, POLL_HIDDEN = 2000;
 const RING_LEN = 2 * Math.PI * 45;
@@ -347,12 +350,18 @@ function stopStream() {
 
 // -- status rendering --------------------------------------------------
 function renderPosture(s) {
-  const p = s.posture in LABELS ? s.posture : 'away';
+  // "Away" is the presence verdict (no face for away_after_seconds),
+  // not a single missed frame.
+  const p = s.presence === 'away' ? 'away' : (s.posture in LABELS ? s.posture : 'unclear');
   const c = `var(--${p})`;
   for (const id of ['status', 'chip']) $(id).style.setProperty('--c', c);
   $('label').textContent = LABELS[p];
   $('chip').textContent = LABELS[p];
-  $('detail').textContent = s.posture_detail || '';
+  $('detail').textContent = p === 'away'
+    ? `no face seen for ${Math.round(s.away_after_seconds || 60)}s`
+    : p === 'absent'
+      ? `marked away after ${Math.round(s.away_after_seconds || 60)}s without a face`
+      : (s.posture_detail || '');
   $('conf').style.width = `${Math.round((s.posture_conf || 0) * 100)}%`;
   if (p !== lastPosture) {
     lastPosture = p;

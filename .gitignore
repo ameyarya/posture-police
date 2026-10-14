@@ -7,3 +7,4 @@ __pycache__/
 snapshots/
 settings.local.yaml
 settings.local.yaml.tmp
+*.db.bak*

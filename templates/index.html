@@ -36,6 +36,7 @@
   header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
   header h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
   header h1 { flex: none; }
+  header .cam { margin-right: 4px; }
   header .cam { color: var(--muted); font-size: 13px; margin-left: auto;
                 display: flex; align-items: center; gap: 8px; min-width: 0; }
   header .cam #cam { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -101,7 +102,7 @@
   .timer .t-title { font-weight: 600; }
   .timer .t-sub { color: var(--muted); font-size: 13px; }
 
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); }
   .stats div { padding: 14px 16px; }
   .stats div + div { border-left: 1px solid var(--border); }
   .stats span { display: block; color: var(--muted); font-size: 12px; }
@@ -110,17 +111,59 @@
   .vlm { padding: 14px 18px; color: var(--muted); display: none; }
   .vlm.show { display: block; }
 
-  details { margin-top: 18px; }
-  details > summary {
-    cursor: pointer; list-style: none; padding: 14px 20px; font-weight: 600;
-    display: flex; align-items: center; gap: 10px;
+  /* History card: today's totals plus a 7-day desk-time chart. */
+  .hist { padding: 16px 18px 14px; position: relative; }
+  .hist-head { display: flex; align-items: baseline; justify-content: space-between;
+               margin-bottom: 10px; }
+  .hist-head b { font-size: 15px; }
+  .hist-head span { color: var(--muted); font-size: 12px; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  .tiles span { display: block; color: var(--muted); font-size: 12px; }
+  .tiles b { font-size: 18px; font-variant-numeric: tabular-nums; }
+  .tiles small { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .chart-title { color: var(--muted); font-size: 12px; margin: 16px 0 6px; }
+  #bars { display: block; width: 100%; height: 112px; overflow: visible; }
+  #bars .bar { fill: var(--accent); }
+  #bars .bar.empty { fill: var(--surface-2); }
+  #bars .hit { fill: transparent; cursor: default; }
+  #bars .col:hover .bar { filter: brightness(1.15); }
+  #bars .base { stroke: var(--border); stroke-width: 1; }
+  #bars text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  #bars text.today { fill: var(--text); font-weight: 600; }
+  .tip {
+    position: absolute; pointer-events: none; z-index: 5; display: none;
+    background: var(--text); color: var(--bg); border-radius: 8px;
+    padding: 7px 10px; font-size: 12px; line-height: 1.4; white-space: nowrap;
+    transform: translate(-50%, -100%);
   }
-  details > summary::-webkit-details-marker { display: none; }
-  details > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
-  details[open] > summary::before { transform: rotate(90deg); }
-  details > summary small { color: var(--muted); font-weight: 400; }
-  .panel { padding: 0 20px 20px; }
-  .panel p { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+  .tip.show { display: block; }
+
+  /* Gear button and the settings drawer it opens. */
+  .gear {
+    flex: none; width: 36px; height: 36px; padding: 0; display: grid; place-items: center;
+    border-radius: 10px; background: var(--surface); color: var(--muted);
+  }
+  .gear:hover { color: var(--text); }
+  .gear svg { width: 19px; height: 19px; }
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20;
+           opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 21;
+    width: min(440px, 100vw); overflow-y: auto; background: var(--surface);
+    border-left: 1px solid var(--border); box-shadow: -8px 0 32px rgba(0,0,0,.18);
+    transform: translateX(100%); transition: transform .22s ease;
+  }
+  body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
+  body.drawer-open .drawer { transform: none; }
+  .drawer-head { position: sticky; top: 0; background: var(--surface); z-index: 1;
+                 display: flex; align-items: center; padding: 16px 20px;
+                 border-bottom: 1px solid var(--border); }
+  .drawer-head h2 { margin: 0; font-size: 17px; }
+  .drawer-head button { margin-left: auto; padding: 4px 10px; font-size: 18px; line-height: 1; }
+  .drawer section { padding: 18px 20px; border-bottom: 1px solid var(--border); }
+  .drawer h3 { margin: 0 0 12px; font-size: 14px; }
+  .drawer h3 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .drawer p { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
 
   .fields { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: end; }
   .fields label { display: flex; flex-direction: column; gap: 4px;
@@ -140,13 +183,10 @@
   .ok { color: var(--good); font-size: 13px; margin-left: 10px; opacity: 0; transition: opacity .2s; }
   .ok.show { opacity: 1; }
 
-  .cal { display: grid; grid-template-columns: 170px minmax(0, 1fr) 48px 110px;
-         gap: 10px 14px; align-items: center; margin-bottom: 16px; }
-  @media (max-width: 600px) {
-    .cal { grid-template-columns: minmax(0, 1fr) 48px; }
-    .cal .now { grid-column: 1 / -1; margin-top: -8px; }
-  }
-  .cal .name { font-size: 14px; }
+  .cal { display: grid; grid-template-columns: minmax(0, 1fr) 44px;
+         gap: 4px 12px; align-items: center; margin-bottom: 16px; }
+  .cal .name { font-size: 14px; grid-column: 1 / -1; margin-top: 10px; }
+  .cal .now { grid-column: 1 / -1; }
   .cal input[type=range] { width: 100%; accent-color: var(--accent); }
   .cal .val { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
   .cal .now { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -161,6 +201,14 @@
   <header>
     <h1>Posture Police</h1>
     <div class="cam"><span class="dot" id="conn"></span><span id="cam">connecting…</span></div>
+    <button class="gear" id="gear" type="button" title="Settings" aria-label="Settings"
+            aria-controls="drawer" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
   </header>
 
   <div class="banner" id="banner">
@@ -202,18 +250,38 @@
       </div>
 
       <div class="card stats">
-        <div><span>Today</span><b id="today">–</b></div>
         <div><span>This stretch</span><b id="stretch">–</b></div>
         <div><span>Last up</span><b id="lastup">–</b></div>
+      </div>
+
+      <div class="card hist" id="hist">
+        <div class="hist-head"><b>Today</b><span id="h-date"></span></div>
+        <div class="tiles">
+          <div><span>Desk time</span><b id="today">–</b></div>
+          <div><span>Away / breaks</span><b id="h-break">–</b> <small id="h-breaks"></small></div>
+          <div><span>Longest stretch</span><b id="h-longest">–</b></div>
+          <div><span>Good posture</span><b id="h-good">–</b></div>
+        </div>
+        <div class="chart-title">Desk time, last 7 days</div>
+        <svg id="bars" role="img" aria-label="Desk time for the last 7 days"></svg>
+        <div class="tip" id="tip"></div>
       </div>
 
       <div class="card vlm" id="vlm"></div>
     </div>
   </div>
 
-  <details class="card" id="d-settings">
-    <summary>Settings <small>reminders, camera</small></summary>
-    <form class="panel" id="settings">
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Settings" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>Settings</h2>
+    <button id="drawer-close" type="button" aria-label="Close settings">×</button>
+  </div>
+  <section>
+    <h3>Reminders &amp; camera</h3>
+    <form id="settings">
       <div class="fields">
         <label>Remind every (min)
           <input id="mins" type="number" min="1" max="180" value="{{ desk_minutes }}"></label>
@@ -226,11 +294,11 @@
       </div>
       <div class="note" id="restart-note">Camera change saved. Restart the server to switch cameras.</div>
     </form>
-  </details>
+  </section>
 
-  <details class="card" id="d-cal">
-    <summary>Calibrate posture <small>applies live</small></summary>
-    <div class="panel">
+  <section id="cal-section">
+    <h3>Calibrate posture <small>applies live</small></h3>
+    <div>
       <p>Sit upright and watch the "now" values. Set each slider so your upright
         posture passes with a little margin; green means passing.</p>
       <div class="cal">
@@ -260,18 +328,18 @@
         <span class="ok" id="cal-ok">saved</span>
       </div>
     </div>
-  </details>
+  </section>
 
-  <details class="card" id="d-more">
-    <summary>More <small>notifications, server</small></summary>
-    <div class="panel row">
+  <section>
+    <h3>Notifications &amp; server</h3>
+    <div class="row">
       <button id="notif-enable" type="button" style="display:none">Enable break notifications</button>
       <button id="notif-test" type="button">Send test notification</button>
       <button id="restart" type="button">Restart server</button>
       <span class="t-sub" id="model"></span>
     </div>
-  </details>
-</div>
+  </section>
+</aside>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -456,12 +524,12 @@ async function tick() {
     renderTimer(s);
     renderReminder(s);
     renderPostureAlert(s);
-    $('today').textContent = fmt(s.desk_today_seconds);
+    $('today').textContent = hm(s.desk_today_seconds);
     $('stretch').textContent = s.presence === 'present' ? fmt(s.continuous_desk_seconds) : '–';
     $('lastup').textContent = s.last_get_up ? when(s.last_get_up) : '–';
     $('vlm').classList.toggle('show', !!s.vlm_note);
     $('vlm').textContent = s.vlm_note ? `Local VLM note: ${s.vlm_note}` : '';
-    if ($('d-cal').open) renderCalibration(s);
+    if (document.body.classList.contains('drawer-open')) renderCalibration(s);
   } catch (e) {
     if (online) {
       online = false;
@@ -549,13 +617,94 @@ $('ovtoggle').onclick = async () => {
   setOverlayLabel();
 };
 
-// Remember which panels are open between visits.
-for (const id of ['d-settings', 'd-cal', 'd-more']) {
-  try { $(id).open = localStorage.getItem(id) === '1'; } catch (e) {}
-  $(id).addEventListener('toggle', () => {
-    try { localStorage.setItem(id, $(id).open ? '1' : '0'); } catch (e) {}
+// -- settings drawer ---------------------------------------------------
+function setDrawer(open) {
+  document.body.classList.toggle('drawer-open', open);
+  $('drawer').setAttribute('aria-hidden', String(!open));
+  $('gear').setAttribute('aria-expanded', String(open));
+  if (open) { $('drawer-close').focus(); tick(); } else { $('gear').focus(); }
+}
+$('gear').onclick = () => setDrawer(true);
+if (location.hash === '#settings') setTimeout(() => setDrawer(true), 0);  // deep link
+$('drawer-close').onclick = () => setDrawer(false);
+$('scrim').onclick = () => setDrawer(false);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) setDrawer(false);
+});
+
+// -- history card --------------------------------------------------------
+function hm(s) {
+  s = Math.max(0, Math.round(s / 60));
+  const h = Math.floor(s / 60), m = s % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+function dayDate(iso) { return new Date(iso + 'T12:00:00'); }
+
+function renderHistory(days) {
+  const t = days[days.length - 1];
+  $('h-date').textContent = dayDate(t.day).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  $('h-break').textContent = hm(t.break_seconds);
+  $('h-breaks').textContent = t.breaks === 1 ? '1 break' : `${t.breaks} breaks`;
+  $('h-longest').textContent = hm(t.longest_stretch_seconds);
+  $('h-good').textContent = t.good_ratio === null ? '–' : `${Math.round(t.good_ratio * 100)}%`;
+
+  // One series (desk time), so no legend: the title names it.
+  const svg = $('bars');
+  const W = svg.clientWidth || 300, H = 112, top = 16, bottom = 20;
+  const plotH = H - top - bottom;
+  const max = Math.max(3600, ...days.map((d) => d.desk_seconds));
+  const slot = W / days.length, bw = Math.min(28, slot - 10), r = 4;
+  const NS = 'http://www.w3.org/2000/svg';
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.replaceChildren();
+  const el = (name, attrs, parent = svg) => {
+    const n = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    parent.appendChild(n);
+    return n;
+  };
+  el('line', { class: 'base', x1: 0, x2: W, y1: top + plotH + 0.5, y2: top + plotH + 0.5 });
+  days.forEach((d, i) => {
+    const g = el('g', { class: 'col' });
+    const x = i * slot + (slot - bw) / 2;
+    const isToday = i === days.length - 1;
+    const h = d.desk_seconds > 0 ? Math.max(2, (d.desk_seconds / max) * plotH) : 2;
+    const y = top + plotH - h, rr = Math.min(r, h);
+    // Rounded top, square bottom on the baseline.
+    el('path', {
+      class: d.desk_seconds > 0 ? 'bar' : 'bar empty',
+      d: `M${x},${top + plotH} V${y + rr} Q${x},${y} ${x + rr},${y} H${x + bw - rr} Q${x + bw},${y} ${x + bw},${y + rr} V${top + plotH} Z`,
+    }, g);
+    const label = el('text', { x: x + bw / 2, y: H - 5, 'text-anchor': 'middle', class: isToday ? 'today' : '' }, g);
+    label.textContent = isToday ? 'Today' : dayDate(d.day).toLocaleDateString([], { weekday: 'narrow' });
+    if (isToday && d.desk_seconds > 0) {   // selective direct label: today only
+      const v = el('text', { x: x + bw / 2, y: y - 5, 'text-anchor': 'middle', class: 'today' }, g);
+      v.textContent = hm(d.desk_seconds);
+    }
+    const hit = el('rect', { class: 'hit', x: i * slot, y: 0, width: slot, height: H }, g);
+    hit.addEventListener('mouseenter', () => showTip(d, x + bw / 2, y));
+    hit.addEventListener('mouseleave', () => $('tip').classList.remove('show'));
   });
 }
+
+function showTip(d, cx, cy) {
+  const tip = $('tip'), svg = $('bars');
+  const date = dayDate(d.day).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const good = d.good_ratio === null ? '' : `<br>${Math.round(d.good_ratio * 100)}% good posture`;
+  tip.innerHTML = `<b>${date}</b><br>Desk ${hm(d.desk_seconds)} · longest ${hm(d.longest_stretch_seconds)}`
+    + `<br>${d.breaks} break${d.breaks === 1 ? '' : 's'} · ${hm(d.break_seconds)} away${good}`;
+  const box = svg.getBoundingClientRect(), card = $('hist').getBoundingClientRect();
+  const left = Math.min(Math.max(box.left - card.left + cx, 90), card.width - 90);
+  tip.style.left = `${left}px`;
+  tip.style.top = `${box.top - card.top + cy - 8}px`;
+  tip.classList.add('show');
+}
+
+async function loadHistory() {
+  try { renderHistory(await (await fetch('/api/history?days=7')).json()); }
+  catch (e) { /* server restarting; next refresh fills it */ }
+}
+window.addEventListener('resize', loadHistory);
 
 async function loadCameras() {
   const cameras = await (await fetch('/api/cameras')).json();
@@ -580,6 +729,8 @@ async function init() {
   } catch (e) { /* server restarting; sliders fill on reload */ }
   tick();
   schedule();
+  loadHistory();
+  setInterval(() => { if (!document.hidden) loadHistory(); }, 30000);
   // Probing cameras can be slow; never block the first paint on it.
   loadCameras().catch(() => {});
 }

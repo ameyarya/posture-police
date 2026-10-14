@@ -119,5 +119,75 @@ class TrackerTest(unittest.TestCase):
         self.assertAlmostEqual(self.tr.desk_today(self._day(1070.0)), 50.0)
 
 
+class HistoryTest(unittest.TestCase):
+    """Uses a fixed local noon so every sample lands on one calendar day."""
+
+    def setUp(self):
+        from datetime import datetime
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        self.db = tmp.name
+        self.addCleanup(os.unlink, self.db)
+        self.tr = Tracker(self.db, away_after_seconds=60.0)
+        self.t0 = datetime(2026, 10, 14, 12, 0).timestamp()
+
+    def today(self, now):
+        return self.tr.history(days=1, now=now)[-1]
+
+    def test_break_runs_from_last_sighting_to_return(self):
+        t = self.t0
+        self.tr.update(True, now=t)
+        self.tr.update(True, now=t + 600)       # 10 min at desk
+        self.tr.update(False, now=t + 610)
+        self.tr.update(False, now=t + 670)      # away; break began at t+600
+        self.tr.update(True, now=t + 900)       # back after 5 min
+        day = self.today(t + 900)
+        self.assertEqual(day["breaks"], 1)
+        self.assertAlmostEqual(day["break_seconds"], 300.0)
+        self.assertAlmostEqual(day["longest_stretch_seconds"], 600.0)
+
+    def test_live_stretch_and_live_break_count(self):
+        t = self.t0
+        self.tr.update(True, now=t)
+        self.tr.update(True, now=t + 1200)
+        self.assertAlmostEqual(self.today(t + 1200)["longest_stretch_seconds"], 1200.0)
+        self.tr.update(False, now=t + 1201)
+        self.tr.update(False, now=t + 1300)     # away; break began at t+1200
+        day = self.today(t + 1500)
+        self.assertEqual(day["breaks"], 1)
+        self.assertAlmostEqual(day["break_seconds"], 300.0)
+
+    def test_short_absence_is_not_a_break(self):
+        t = self.t0
+        self.tr.update(True, now=t)
+        self.tr.update(False, now=t + 10)
+        self.tr.update(True, now=t + 40)
+        self.assertEqual(self.today(t + 40)["breaks"], 0)
+
+    def test_good_ratio_ignores_unclear(self):
+        t = self.t0
+        self.tr.add_posture("good", 30, now=t)
+        self.tr.add_posture("slouch", 10, now=t)
+        self.tr.add_posture("unclear", 100, now=t)
+        self.assertAlmostEqual(self.today(t)["good_ratio"], 0.75)
+        self.tr.checkpoint(now=t)                # flushed to SQLite, same answer
+        self.assertAlmostEqual(self.today(t)["good_ratio"], 0.75)
+
+    def test_final_checkpoint_closes_open_stretch(self):
+        t = self.t0
+        self.tr.update(True, now=t)
+        self.tr.checkpoint(now=t + 300, final=True)
+        reloaded = Tracker(self.db, away_after_seconds=60.0)
+        day = reloaded.history(days=1, now=t + 400)[-1]
+        self.assertAlmostEqual(day["longest_stretch_seconds"], 300.0)
+        self.assertAlmostEqual(day["desk_seconds"], 300.0)
+
+    def test_history_is_oldest_first(self):
+        days = self.tr.history(days=7, now=self.t0)
+        self.assertEqual(len(days), 7)
+        self.assertEqual(days[-1]["day"], "2026-10-14")
+        self.assertEqual(days[0]["day"], "2026-10-08")
+
+
 if __name__ == "__main__":
     unittest.main()

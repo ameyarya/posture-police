@@ -14,6 +14,7 @@ import time
 import unittest
 
 import app as appmod
+from posture.tracker import Tracker
 
 
 class ApiTest(unittest.TestCase):
@@ -27,6 +28,13 @@ class ApiTest(unittest.TestCase):
         self._real_settings = dict(appmod.settings)
         appmod.SETTINGS_PATH = os.path.join(tmpdir, "settings.local.yaml")
         appmod.settings.clear()
+        # Fresh tracker on a scratch DB so tests never write fake events into
+        # the real posture.db.
+        self._real_tracker = appmod.tracker
+        appmod.tracker = Tracker(
+            os.path.join(tmpdir, "posture.db"),
+            away_after_seconds=self._real_tracker.away_after,
+        )
         self.addCleanup(self._restore)
 
     def _restore(self):
@@ -38,17 +46,12 @@ class ApiTest(unittest.TestCase):
         if os.path.exists(appmod.SETTINGS_PATH):
             os.unlink(appmod.SETTINGS_PATH)
         appmod.SETTINGS_PATH = self._real_settings_path
+        appmod.tracker = self._real_tracker
         appmod.settings.clear()
         appmod.settings.update(self._real_settings)
         fresh = appmod.load_config()
         appmod.cfg.clear()
         appmod.cfg.update(fresh)
-        t = appmod.tracker
-        t.state = "unknown"
-        t.streak_start = None
-        t.banked_until = None
-        t.last_seen = None
-        t.last_reminder = None
         d = appmod.detector
         d.th_drop = 0.6
         d.th_offset = 0.35
@@ -94,6 +97,15 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         r = self.client.get("/api/status", headers={"Host": "[::1]:80"})
         self.assertEqual(r.status_code, 200)
+
+    def test_history_shape(self):
+        r = self.client.get("/api/history?days=3")
+        self.assertEqual(r.status_code, 200)
+        days = json.loads(r.data)
+        self.assertEqual(len(days), 3)
+        for key in ("day", "desk_seconds", "break_seconds", "breaks",
+                    "longest_stretch_seconds", "good_ratio"):
+            self.assertIn(key, days[-1])
 
     def test_settings_roundtrip(self):
         r = self.client.post("/api/settings", json={"desk_minutes": 12})

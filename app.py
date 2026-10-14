@@ -136,7 +136,7 @@ CHECKPOINT_SECONDS = 60.0
 
 def shutdown(signum, _frame) -> None:
     """Save the running desk stretch before a restart or Ctrl+C."""
-    tracker.checkpoint()
+    tracker.checkpoint(final=True)
     raise SystemExit(0)
 
 
@@ -145,10 +145,14 @@ def vision_loop() -> None:
     vlm_cfg = cfg.get("vlm", {})
     last_vlm = 0.0
     last_checkpoint = time.time()
+    last_tick = last_checkpoint
     while True:
         res = detector.result
         tracker.update(detector.face_visible)
         now = time.time()
+        if tracker.state == "present":
+            tracker.add_posture(res.status, min(now - last_tick, 5.0), now)
+        last_tick = now
         if now - last_checkpoint >= CHECKPOINT_SECONDS:
             last_checkpoint = now
             tracker.checkpoint(now)
@@ -290,6 +294,12 @@ def api_status():
         },
     )
     return jsonify(out)
+
+
+@app.route("/api/history")
+def api_history():
+    days = max(1, min(31, request.args.get("days", 7, type=int)))
+    return jsonify(tracker.history(days))
 
 
 @app.route("/api/settings")

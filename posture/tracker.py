@@ -19,6 +19,8 @@ class Tracker:
         self._lock = threading.Lock()
         self.state = "unknown"  # present | maybe-away | away | unknown
         self.streak_start: float | None = None
+        # Desk time of the current streak up to here is already in `days`.
+        self.banked_until: float | None = None
         self.last_seen: float | None = None
         self.last_get_up: float | None = None
         self.last_reminder: float | None = None
@@ -92,6 +94,7 @@ class Tracker:
                     self.state = "present"
                     if self.streak_start is None:
                         self.streak_start = now
+                        self.banked_until = now
                 return self.state
             # No person in frame.
             if self.state == "present":
@@ -104,17 +107,43 @@ class Tracker:
                     self.last_get_up = now
                     self._save_meta("last_get_up", now)
                     if self.streak_start is not None:
-                        self._add_desk(
-                            date.fromtimestamp(now).isoformat(),
-                            max(0.0, self.last_seen - self.streak_start),
-                        )
+                        self._bank(self.last_seen)
                         self.streak_start = None
+                        self.banked_until = None
                     self._log(now, "get_up")
                 return self.state
             if self.state == "unknown":
                 self.state = "away"
                 return self.state
             return self.state  # already away
+
+    def _bank(self, upto: float) -> None:
+        """Store streak time not yet in `days`. Caller holds the lock."""
+        if self.banked_until is None or upto <= self.banked_until:
+            return
+        self._add_desk(
+            date.fromtimestamp(upto).isoformat(), upto - self.banked_until
+        )
+        self.banked_until = upto
+
+    def checkpoint(self, now: float | None = None) -> None:
+        """Persist the running streak so a restart or crash loses little.
+
+        Call periodically and on shutdown. Time after the last sighting is
+        left unbanked until presence is confirmed again.
+        """
+        now = time.time() if now is None else now
+        with self._lock:
+            if self.streak_start is None:
+                return
+            self._bank(now if self.state == "present" else self.last_seen)
+
+    def unbanked_seconds(self, now: float | None = None) -> float:
+        now = time.time() if now is None else now
+        with self._lock:
+            if self.state == "present" and self.banked_until is not None:
+                return max(0.0, now - self.banked_until)
+            return 0.0
 
     def continuous_desk_seconds(self, now: float | None = None) -> float:
         now = time.time() if now is None else now
@@ -155,7 +184,7 @@ class Tracker:
             "presence": self.state,
             "continuous_desk_seconds": self.continuous_desk_seconds(now),
             "desk_today_seconds": self.desk_today(date.fromtimestamp(now).isoformat())
-            + self.continuous_desk_seconds(now),
+            + self.unbanked_seconds(now),
             "last_get_up": self.last_get_up,
             "reminder_due": self.reminder_due(desk_minutes, now),
         }

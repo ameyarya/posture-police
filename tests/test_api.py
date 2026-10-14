@@ -8,6 +8,8 @@ project root with the project environment:
 """
 
 import json
+import os
+import tempfile
 import time
 import unittest
 
@@ -19,17 +21,32 @@ class ApiTest(unittest.TestCase):
         self.client = appmod.app.test_client()
         with open("config.yaml", "rb") as fh:
             self._cfg_bytes = fh.read()
+        # Point dashboard overrides at a scratch file; never touch the real one.
+        tmpdir = tempfile.mkdtemp()
+        self._real_settings_path = appmod.SETTINGS_PATH
+        self._real_settings = dict(appmod.settings)
+        appmod.SETTINGS_PATH = os.path.join(tmpdir, "settings.local.yaml")
+        appmod.settings.clear()
         self.addCleanup(self._restore)
 
     def _restore(self):
-        with open("config.yaml", "wb") as fh:
-            fh.write(self._cfg_bytes)
+        with open("config.yaml", "rb") as fh:
+            changed = fh.read() != self._cfg_bytes
+        if changed:
+            with open("config.yaml", "wb") as fh:
+                fh.write(self._cfg_bytes)
+        if os.path.exists(appmod.SETTINGS_PATH):
+            os.unlink(appmod.SETTINGS_PATH)
+        appmod.SETTINGS_PATH = self._real_settings_path
+        appmod.settings.clear()
+        appmod.settings.update(self._real_settings)
         fresh = appmod.load_config()
         appmod.cfg.clear()
         appmod.cfg.update(fresh)
         t = appmod.tracker
         t.state = "unknown"
         t.streak_start = None
+        t.banked_until = None
         t.last_seen = None
         t.last_reminder = None
         d = appmod.detector
@@ -63,8 +80,19 @@ class ApiTest(unittest.TestCase):
         r = self.client.post("/api/settings", json={"desk_minutes": 12})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(appmod.cfg["reminders"]["desk_minutes"], 12)
-        with open("config.yaml") as fh:
-            self.assertIn("12", fh.read())
+        with open(appmod.SETTINGS_PATH) as fh:
+            self.assertIn("desk_minutes: 12", fh.read())
+        with open("config.yaml", "rb") as fh:
+            self.assertEqual(fh.read(), self._cfg_bytes)  # defaults untouched
+        self.assertEqual(appmod.load_config()["reminders"]["desk_minutes"], 12)
+
+    def test_overlay_toggle_applies_live(self):
+        self.client.post("/api/settings", json={"preview_overlay": False})
+        self.assertFalse(appmod.detector.preview_overlay)
+        body = json.loads(self.client.get("/api/settings").data)
+        self.assertFalse(body["preview_overlay"])
+        self.client.post("/api/settings", json={"preview_overlay": True})
+        self.assertTrue(appmod.detector.preview_overlay)
 
     def test_video_placeholder_is_jpeg(self):
         jpeg = appmod.placeholder_jpeg()

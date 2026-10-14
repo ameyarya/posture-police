@@ -66,6 +66,11 @@
     color: #cbd0d6; font-size: 14px;
   }
   .video.is-paused .paused { display: grid; }
+  .ovtoggle {
+    position: absolute; bottom: 12px; right: 12px; padding: 4px 10px;
+    font-size: 12px; border-radius: 999px; border: 0;
+    background: rgba(0,0,0,.55); color: #fff;
+  }
   .chip {
     position: absolute; top: 12px; left: 12px; padding: 5px 12px;
     border-radius: 999px; font-weight: 600; font-size: 13px; color: #fff;
@@ -174,6 +179,7 @@
       <img id="live" alt="webcam preview">
       <div class="paused">Preview paused while this tab is hidden</div>
       <span class="chip" id="chip">starting</span>
+      <button class="ovtoggle" id="ovtoggle" type="button" title="Show or hide the pose overlay">Overlay: on</button>
     </div>
 
     <div class="side">
@@ -533,6 +539,16 @@ $('cal-save').onclick = async () => {
 };
 $('cal-reset').onclick = () => setSliders(saved);
 
+function setOverlayLabel() {
+  $('ovtoggle').textContent = `Overlay: ${saved.preview_overlay === false ? 'off' : 'on'}`;
+}
+$('ovtoggle').onclick = async () => {
+  const next = saved.preview_overlay === false;
+  await postJSON('/api/settings', { preview_overlay: next });
+  saved.preview_overlay = next;
+  setOverlayLabel();
+};
+
 // Remember which panels are open between visits.
 for (const id of ['d-settings', 'd-cal', 'd-more']) {
   try { $(id).open = localStorage.getItem(id) === '1'; } catch (e) {}
@@ -560,6 +576,7 @@ async function init() {
   try {
     saved = await (await fetch('/api/settings')).json();
     setSliders(saved);
+    setOverlayLabel();
   } catch (e) { /* server restarting; sliders fill on reload */ }
   tick();
   schedule();

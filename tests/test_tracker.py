@@ -85,6 +85,39 @@ class TrackerTest(unittest.TestCase):
         reloaded = Tracker(self.db, away_after_seconds=30.0)
         self.assertEqual(reloaded.last_get_up, 1050.0)
 
+    def _day(self, ts):
+        from datetime import date
+        return date.fromtimestamp(ts).isoformat()
+
+    def test_checkpoint_survives_restart(self):
+        self.tr.update(True, now=1000.0)
+        self.tr.update(True, now=1100.0)
+        self.tr.checkpoint(now=1100.0)
+        reloaded = Tracker(self.db, away_after_seconds=30.0)
+        self.assertAlmostEqual(reloaded.desk_today(self._day(1100.0)), 100.0)
+
+    def test_checkpoint_then_get_up_counts_once(self):
+        self.tr.update(True, now=1000.0)
+        self.tr.checkpoint(now=1060.0)
+        self.tr.update(True, now=1090.0)
+        self.tr.update(False, now=1100.0)
+        self.tr.update(False, now=1130.0)  # away; last seen 1090
+        self.assertAlmostEqual(self.tr.desk_today(self._day(1130.0)), 90.0)
+
+    def test_today_total_not_double_counted(self):
+        self.tr.update(True, now=1000.0)
+        self.tr.checkpoint(now=1060.0)
+        d = self.tr.to_dict(30, now=1080.0)
+        self.assertAlmostEqual(d["desk_today_seconds"], 80.0)
+        self.assertAlmostEqual(d["continuous_desk_seconds"], 80.0)
+
+    def test_checkpoint_while_maybe_away_stops_at_last_seen(self):
+        self.tr.update(True, now=1000.0)
+        self.tr.update(True, now=1050.0)
+        self.tr.update(False, now=1055.0)
+        self.tr.checkpoint(now=1070.0)
+        self.assertAlmostEqual(self.tr.desk_today(self._day(1070.0)), 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()

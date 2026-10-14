@@ -32,9 +32,20 @@ from posture.detector import Detector
 from posture.tracker import Tracker
 
 CONFIG_PATH = "config.yaml"
+# Dashboard edits land here, never in config.yaml, so saving settings
+# cannot clobber defaults or keys the running server does not know about.
+SETTINGS_PATH = "settings.local.yaml"
+
+
+def load_settings() -> dict:
+    if not os.path.exists(SETTINGS_PATH):
+        return {}
+    with open(SETTINGS_PATH) as fh:
+        return yaml.safe_load(fh) or {}
 
 
 def load_config(path: str = CONFIG_PATH) -> dict:
+    """config.yaml defaults with dashboard overrides layered on top."""
     if not os.path.exists(path):
         raise SystemExit(
             f"error: {path} not found - "
@@ -42,14 +53,27 @@ def load_config(path: str = CONFIG_PATH) -> dict:
             "e.g. `./run.sh`"
         )
     with open(path) as fh:
-        return yaml.safe_load(fh)
+        merged = yaml.safe_load(fh)
+    for section, values in load_settings().items():
+        if isinstance(values, dict):
+            merged.setdefault(section, {}).update(values)
+    return merged
 
 
-def save_config(cfg: dict) -> None:
-    with open(CONFIG_PATH, "w") as fh:
-        yaml.safe_dump(cfg, fh, sort_keys=False)
+def set_setting(section: str, key: str, value) -> None:
+    """Apply a dashboard change to the live config and the overrides."""
+    cfg.setdefault(section, {})[key] = value
+    settings.setdefault(section, {})[key] = value
 
 
+def save_settings() -> None:
+    tmp = SETTINGS_PATH + ".tmp"
+    with open(tmp, "w") as fh:
+        yaml.safe_dump(settings, fh, sort_keys=False)
+    os.replace(tmp, SETTINGS_PATH)
+
+
+settings = load_settings()
 cfg = load_config()
 
 app = Flask(__name__)
@@ -79,6 +103,7 @@ detector = Detector(
     preview_fps=cfg["camera"].get("preview_fps", 10),
     preview_follow=cfg["camera"].get("preview_follow", True),
     preview_mirror=cfg["camera"].get("preview_mirror", True),
+    preview_overlay=cfg["camera"].get("preview_overlay", True),
 )
 tracker = Tracker(
     db_path=cfg["storage"]["db_path"],
@@ -105,14 +130,27 @@ def mac_notify(title: str, message: str) -> None:
         pass
 
 
+CHECKPOINT_SECONDS = 60.0
+
+
+def shutdown(signum, _frame) -> None:
+    """Save the running desk stretch before a restart or Ctrl+C."""
+    tracker.checkpoint()
+    raise SystemExit(0)
+
+
 def vision_loop() -> None:
     global mac_notified_streak
     vlm_cfg = cfg.get("vlm", {})
     last_vlm = 0.0
+    last_checkpoint = time.time()
     while True:
         res = detector.result
         tracker.update(detector.face_visible)
         now = time.time()
+        if now - last_checkpoint >= CHECKPOINT_SECONDS:
+            last_checkpoint = now
+            tracker.checkpoint(now)
 
         if posture_alert.update(res.status, tracker.state != "away", now):
             what = "slouching" if res.status == "slouch" else "leaning"
@@ -224,6 +262,7 @@ def api_settings_get():
             "desk_minutes": cfg["reminders"]["desk_minutes"],
             "away_after_seconds": cfg["presence"]["away_after_seconds"],
             "posture_alert_seconds": posture_alert.after,
+            "preview_overlay": detector.preview_overlay,
             "camera_index": cfg["camera"]["index"],
             "head_drop_ratio": detector.th_drop,
             "lean_offset_ratio": detector.th_offset,
@@ -263,19 +302,23 @@ def api_cameras():
 def api_settings():
     data = request.get_json(force=True)
     if "desk_minutes" in data:
-        cfg["reminders"]["desk_minutes"] = max(1, float(data["desk_minutes"]))
+        set_setting("reminders", "desk_minutes", max(1, float(data["desk_minutes"])))
     if "away_after_seconds" in data:
         val = max(5, float(data["away_after_seconds"]))
-        cfg["presence"]["away_after_seconds"] = val
+        set_setting("presence", "away_after_seconds", val)
         tracker.away_after = val
     if "posture_alert_seconds" in data:
         val = max(0.0, float(data["posture_alert_seconds"]))  # 0 turns it off
-        cfg["reminders"]["posture_alert_seconds"] = val
+        set_setting("reminders", "posture_alert_seconds", val)
         posture_alert.after = val
+    if "preview_overlay" in data:
+        val = bool(data["preview_overlay"])
+        set_setting("camera", "preview_overlay", val)
+        detector.preview_overlay = val
     if "camera_index" in data:
         # Saved for the next start; the running detector keeps its camera.
-        cfg["camera"]["index"] = int(data["camera_index"])
-        cfg["camera"]["prefer_name"] = ""
+        set_setting("camera", "index", int(data["camera_index"]))
+        set_setting("camera", "prefer_name", "")
     for key, lo, hi in (
         ("head_drop_ratio", 0.2, 1.2),
         ("lean_offset_ratio", 0.1, 0.8),
@@ -283,13 +326,13 @@ def api_settings():
         ("min_conf", 0.05, 0.9),
     ):
         if key in data:
-            cfg["inference"][key] = min(hi, max(lo, float(data[key])))
+            set_setting("inference", key, min(hi, max(lo, float(data[key]))))
     # Calibration applies live; no restart needed.
     detector.th_drop = cfg["inference"].get("head_drop_ratio", 0.6)
     detector.th_offset = cfg["inference"].get("lean_offset_ratio", 0.35)
     detector.th_tilt = cfg["inference"].get("tilt_ratio", 0.25)
     detector.min_conf = cfg["inference"].get("min_conf", 0.3)
-    save_config(cfg)
+    save_settings()
     return jsonify({"ok": True, "restart_needed": "camera_index" in data})
 
 
@@ -335,6 +378,8 @@ def pick_port(host: str, base: int, tries: int = 10) -> int:
 
 if __name__ == "__main__":
     ALLOW_RESTART = True
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
     detector.start()
     threading.Thread(target=vision_loop, daemon=True).start()
     port = pick_port(cfg["server"]["host"], int(cfg["server"]["port"]))

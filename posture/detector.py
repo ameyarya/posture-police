@@ -99,21 +99,34 @@ def draw_pose(
     frame: np.ndarray,
     kpts_xy: np.ndarray,
     box_xywh: np.ndarray | None = None,
+    conf: np.ndarray | None = None,
+    min_conf: float = 0.0,
 ) -> np.ndarray:
-    """Draw keypoints, limbs, and box on a frame. Returns the frame."""
+    """Draw keypoints, limbs, and box on a frame. Returns the frame.
+
+    Points below min_conf (and limbs touching them) are skipped, so the
+    overlay only shows what the scoring actually trusts.
+    """
     pts = np.asarray(kpts_xy, dtype=float)
     h, w = frame.shape[:2]
+    trusted = (
+        np.ones(len(pts), dtype=bool)
+        if conf is None
+        else np.asarray(conf, dtype=float) >= min_conf
+    )
 
-    def inside(x: float, y: float) -> bool:
-        return 0 <= x < w and 0 <= y < h
+    def inside(i: int) -> bool:
+        x, y = pts[i, :2]
+        return bool(trusted[i]) and 0 <= x < w and 0 <= y < h
 
     for a, b in SKELETON_PAIRS:
-        xa, ya = pts[a, :2]
-        xb, yb = pts[b, :2]
-        if inside(xa, ya) and inside(xb, yb):
+        if inside(a) and inside(b):
+            xa, ya = pts[a, :2]
+            xb, yb = pts[b, :2]
             cv2.line(frame, (int(xa), int(ya)), (int(xb), int(yb)), (0, 255, 0), 2)
-    for x, y in pts[:, :2]:
-        if inside(x, y):
+    for i in range(len(pts)):
+        if inside(i):
+            x, y = pts[i, :2]
             cv2.circle(frame, (int(x), int(y)), 4, (0, 0, 255), -1)
     if box_xywh is not None:
         xc, yc, bw, bh = (float(v) for v in box_xywh[:4])
@@ -217,6 +230,7 @@ class Detector:
         preview_fps: float = 10.0,
         preview_follow: bool = True,
         preview_mirror: bool = True,
+        preview_overlay: bool = True,
     ) -> None:
         self.model_name = model_name
         self.fallback_model = fallback_model
@@ -237,6 +251,8 @@ class Detector:
         self._next_preview = 0.0
         self.preview_follow = preview_follow
         self.preview_mirror = preview_mirror
+        self.preview_overlay = preview_overlay
+        self._ov_conf: np.ndarray | None = None
         self._view_cx: float | None = None
         self._metrics: dict = {}
         self._face = False
@@ -394,6 +410,7 @@ class Detector:
                 self._face = False
                 self._ov_kpts = None
                 self._ov_box = None
+                self._ov_conf = None
                 self._metrics = {}
             return
         # Largest person wins the POC.
@@ -409,6 +426,7 @@ class Detector:
         with self._lock:
             self._ov_kpts = kpts[idx].copy()
             self._ov_box = boxes[idx].copy() if boxes is not None else None
+            self._ov_conf = confs[idx].copy() if confs is not None else None
             self._metrics = pose_metrics(kpts[idx]) or {}
             self._face = face_visible(confs[idx] if confs is not None else None)
         if confs is None or not keypoints_usable(confs[idx], self.min_conf):
@@ -437,8 +455,9 @@ class Detector:
         with self._lock:
             overlay_kpts = None if self._ov_kpts is None else self._ov_kpts.copy()
             overlay_box = None if self._ov_box is None else self._ov_box.copy()
-        if overlay_kpts is not None:
-            draw_pose(frame, overlay_kpts, overlay_box)
+            overlay_conf = None if self._ov_conf is None else self._ov_conf.copy()
+        if self.preview_overlay and overlay_kpts is not None:
+            draw_pose(frame, overlay_kpts, overlay_box, overlay_conf, self.min_conf)
         if self.preview_follow:
             frame = self._follow_crop(frame, overlay_box)
         if self.preview_mirror:

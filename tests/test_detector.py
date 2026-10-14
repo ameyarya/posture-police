@@ -95,6 +95,19 @@ class CropTest(unittest.TestCase):
         self.assertEqual(out.shape, (50, 50, 3))
 
 
+class OverlayConfidenceTest(unittest.TestCase):
+    def test_low_confidence_points_are_not_drawn(self):
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        kpts = np.zeros((17, 2))
+        kpts[:] = [50, 50]
+        conf = np.zeros(17)  # nothing trusted
+        draw_pose(frame, kpts, None, conf, min_conf=0.4)
+        self.assertEqual(int(frame.sum()), 0)
+        conf[0] = 0.9
+        draw_pose(frame, kpts, None, conf, min_conf=0.4)
+        self.assertGreater(int(frame.sum()), 0)
+
+
 class FaceVisibleTest(unittest.TestCase):
     def test_any_confident_face_point_counts(self):
         row = np.zeros(17)

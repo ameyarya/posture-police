@@ -5,3 +5,5 @@ __pycache__/
 *.db
 *.db-journal
 snapshots/
+settings.local.yaml
+settings.local.yaml.tmp

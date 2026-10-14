@@ -29,6 +29,7 @@ reminders:
 server:
   host: 127.0.0.1
   port: 8080
+  name: ''
 storage:
   db_path: posture.db
 vlm:

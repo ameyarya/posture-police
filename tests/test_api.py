@@ -76,6 +76,25 @@ class ApiTest(unittest.TestCase):
         self.assertIn("posture_alert", body)
         self.assertIn("posture_bad_seconds", body)
 
+    def test_refuses_other_machines(self):
+        r = self.client.get("/api/status", environ_base={"REMOTE_ADDR": "192.168.1.20"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_accepts_ipv4_mapped_loopback(self):
+        r = self.client.get("/api/status", environ_base={"REMOTE_ADDR": "::ffff:127.0.0.1"})
+        self.assertEqual(r.status_code, 200)
+
+    def test_refuses_unknown_host_header(self):
+        r = self.client.get("/api/status", headers={"Host": "evil.example:8080"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_accepts_configured_name(self):
+        appmod.cfg["server"]["name"] = "posture-cam.local"
+        r = self.client.get("/api/status", headers={"Host": "posture-cam.local"})
+        self.assertEqual(r.status_code, 200)
+        r = self.client.get("/api/status", headers={"Host": "[::1]:80"})
+        self.assertEqual(r.status_code, 200)
+
     def test_settings_roundtrip(self):
         r = self.client.post("/api/settings", json={"desk_minutes": 12})
         self.assertEqual(r.status_code, 200)

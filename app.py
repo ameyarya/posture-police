@@ -11,6 +11,7 @@ Then open http://127.0.0.1:8080 in a browser.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import signal
 import subprocess
@@ -23,7 +24,7 @@ import time
 os.environ.setdefault("YOLO_OFFLINE", "1")
 
 import yaml
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, render_template, request
 
 from posture import vlm
 from posture.alerts import PostureAlert
@@ -179,6 +180,42 @@ def vision_loop() -> None:
                 if note:
                     vlm_state.update(note=note, ts=now)
         time.sleep(0.5)
+
+
+LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
+
+
+def allowed_hosts() -> set[str]:
+    name = cfg["server"].get("name")
+    return LOCAL_HOSTNAMES | ({name.lower()} if name else set())
+
+
+def request_hostname(host_header: str) -> str:
+    """Host header without its port: 'a.local:80' -> 'a.local', '[::1]:80' -> '::1'."""
+    host = host_header.strip().lower()
+    if host.startswith("["):
+        return host[1:].split("]", 1)[0]
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+
+
+@app.before_request
+def local_only():
+    """Serve this Mac only, under a name we expect.
+
+    The server may bind every interface (port 80 needs that without
+    root), so refuse other machines. The Host check stops DNS-rebinding
+    pages in your browser from reading the camera feed.
+    """
+    try:
+        ip = ipaddress.ip_address(request.remote_addr or "")
+    except ValueError:
+        abort(403)
+    if getattr(ip, "ipv4_mapped", None):
+        ip = ip.ipv4_mapped
+    if not ip.is_loopback:
+        abort(403)
+    if request_hostname(request.host) not in allowed_hosts():
+        abort(403)
 
 
 @app.route("/")
@@ -363,8 +400,9 @@ def pick_port(host: str, base: int, tries: int = 10) -> int:
     """First free TCP port from base upward. Never guesses in the dark."""
     import socket
 
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
     for port in range(base, base + tries):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        with socket.socket(family, socket.SOCK_STREAM) as sock:
             # Match werkzeug: lingering TIME_WAIT sockets from a restarted
             # server must not push us onto the next port.
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -383,9 +421,7 @@ if __name__ == "__main__":
     detector.start()
     threading.Thread(target=vision_loop, daemon=True).start()
     port = pick_port(cfg["server"]["host"], int(cfg["server"]["port"]))
-    print(
-        f"Posture Police running - open "
-        f"http://{cfg['server']['host']}:{port} in a browser",
-        flush=True,
-    )
+    name = cfg["server"].get("name") or "127.0.0.1"
+    url = f"http://{name}/" if port == 80 else f"http://{name}:{port}/"
+    print(f"Posture Police running - open {url} in a browser", flush=True)
     app.run(host=cfg["server"]["host"], port=port)

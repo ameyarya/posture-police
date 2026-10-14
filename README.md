@@ -34,10 +34,28 @@ Without uv: create a Python 3.12 virtualenv yourself (`python3.12 -m venv .venv`
 
 Settings you change on the dashboard are saved to `settings.local.yaml` (not committed), layered on top of the defaults in `config.yaml`.
 
+### Optional: a friendly URL like http://posture-cam.local/
+
+1. Point the name at your Mac (local only, needs your password once):
+
+       sudo sh -c 'printf "127.0.0.1 posture-cam.local\n::1 posture-cam.local\n" >> /etc/hosts'
+       sudo killall -HUP mDNSResponder
+
+2. Add to `settings.local.yaml`:
+
+       server:
+         host: "::"
+         port: 80
+         name: posture-cam.local
+
+3. Restart. If macOS asks whether Python may accept incoming connections, choose **Deny**: that only blocks other devices.
+
+Port 80 can only be opened without root on all interfaces, so the server refuses any request that isn't from this Mac or that uses a hostname other than the configured one.
+
 ## Privacy
 
 - Frames stay in memory; nothing is written to disk or uploaded.
-- The dashboard only listens on `127.0.0.1`, so other devices can't reach it.
+- The dashboard only answers requests from this Mac (other devices get 403), and only under expected hostnames, which blocks DNS-rebinding pages from reading the camera feed.
 - Ultralytics runs with `YOLO_OFFLINE=1`, which turns off its anonymous usage analytics.
 - The optional Qwen3-VL note (`vlm.enabled` in `config.yaml`, off by default) talks only to a local Ollama.
 

@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 *.pt
+*.task
+*.task.tmp
 *.db
 *.db-journal
 snapshots/

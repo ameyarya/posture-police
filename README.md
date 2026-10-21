@@ -20,7 +20,7 @@ See [PLAN.md](PLAN.md) for the original scope and design decisions.
 
 Open http://127.0.0.1:8080 and allow camera access when macOS asks. `run.sh` restarts the server if it stops; press Ctrl+C twice to quit.
 
-The first run downloads the ~7.5 MB YOLO pose model (`yolo26n-pose.pt`); after that everything works offline.
+The first run downloads the ~6 MB MediaPipe pose model (`pose_landmarker_lite.task`); after that everything works offline.
 
 Without uv: create a Python 3.12 virtualenv yourself (`python3.12 -m venv .venv`), then `.venv/bin/pip install -r requirements.txt` and `./run.sh`.
 
@@ -56,7 +56,7 @@ Port 80 can only be opened without root on all interfaces, so the server refuses
 
 - Frames stay in memory; nothing is written to disk or uploaded.
 - The dashboard only answers requests from this Mac (other devices get 403), and only under expected hostnames, which blocks DNS-rebinding pages from reading the camera feed.
-- Ultralytics runs with `YOLO_OFFLINE=1`, which turns off its anonymous usage analytics.
+- MediaPipe runs fully offline with no usage analytics; the pose model is fetched once and then never touches the network.
 - The optional Qwen3-VL note (`vlm.enabled` in `config.yaml`, off by default) talks only to a local Ollama.
 
 ## Tests
@@ -70,7 +70,8 @@ No camera needed.
 | Path | What it does |
 | --- | --- |
 | `app.py` | Flask server, settings, reminder and alert loop |
-| `posture/detector.py` | Camera capture, YOLO pose inference, posture scoring, preview overlay |
+| `posture/detector.py` | Camera capture, pose inference, posture scoring, preview overlay |
+| `posture/mp_pose.py` | MediaPipe backend: model fetch, landmark mapping |
 | `posture/tracker.py` | Presence state machine, desk time in SQLite (`posture.db`) |
 | `posture/alerts.py` | Bad-posture alert timing |
 | `posture/camera.py` | Camera discovery and selection |

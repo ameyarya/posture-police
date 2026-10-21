@@ -1,4 +1,4 @@
-"""Webcam capture plus YOLO pose inference plus posture scoring.
+"""Webcam capture plus MediaPipe pose inference plus posture scoring.
 
 Everything runs locally in this process. Frames are kept in memory and are
 never uploaded anywhere; the only network use in the whole app is the
@@ -15,7 +15,10 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-# COCO keypoint indices used by Ultralytics pose models.
+from posture.mp_pose import PoseBackend
+
+# COCO keypoint layout used internally. MediaPipe landmarks are mapped
+# onto these indices by posture/mp_pose.py.
 NOSE = 0
 L_SHOULDER = 5
 R_SHOULDER = 6
@@ -260,8 +263,7 @@ class Detector:
 
     def __init__(
         self,
-        model_name: str = "yolo26n-pose",
-        fallback_model: str = "yolov8n-pose",
+        model_name: str = "pose_landmarker_lite.task",
         conf: float = 0.5,
         inference_fps: float = 3.0,
         camera_index: int = 0,
@@ -282,7 +284,6 @@ class Detector:
         preview_enhance: bool = True,
     ) -> None:
         self.model_name = model_name
-        self.fallback_model = fallback_model
         self.conf = conf
         self.inference_fps = inference_fps
         self.camera_index = camera_index
@@ -316,7 +317,7 @@ class Detector:
         self._pending_count = 0
         self._jpeg: bytes | None = None
         self._jpeg_seq = 0
-        self._model = None
+        self._backend: PoseBackend | None = None
         self._model_label = ""
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -333,6 +334,8 @@ class Detector:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=5)
+        if self._backend is not None:
+            self._backend.close()
 
     # -- public state ---------------------------------------------------
     @property
@@ -367,20 +370,16 @@ class Detector:
 
     # -- internals ------------------------------------------------------
     def _load_model(self) -> None:
-        from ultralytics import YOLO
-
-        for name in (self.model_name, self.fallback_model):
-            try:
-                self._model = YOLO(name if name.endswith(".pt") else f"{name}.pt")
-                with self._lock:
-                    self._model_label = name
-                return
-            except Exception:
-                continue
+        try:
+            backend = PoseBackend(self.model_name, self.conf)
+            backend.load()
+        except Exception as exc:
+            with self._lock:
+                self._result = PostureResult("error", f"could not load pose model: {exc}")
+            return
         with self._lock:
-            self._result = PostureResult(
-                "error", "could not load pose model (offline first run?)"
-            )
+            self._backend = backend
+            self._model_label = self.model_name
 
     def _set_status(self, status: str, detail: str, conf: float) -> None:
         """Hysteresis: a new posture must persist before it is reported."""
@@ -439,7 +438,7 @@ class Detector:
                 failures = 0
                 frame = crop_window(frame, self.zoom, self.pan_x, self.pan_y)
                 now = time.monotonic()
-                if self._model is not None and now >= next_run:
+                if self._backend is not None and now >= next_run:
                     next_run = now + period
                     self._infer(frame)
                 # Encoding is the costly part; only do it at preview rate.
@@ -451,11 +450,11 @@ class Detector:
 
     def _infer(self, frame: np.ndarray) -> None:
         try:
-            res = self._model.predict(frame, conf=self.conf, verbose=False)[0]
+            found = self._backend.detect(frame)
         except Exception as exc:
             self._set_status("error", f"inference failed: {exc}", 0.0)
             return
-        if res.keypoints is None or len(res.keypoints) == 0:
+        if found is None:
             detail = (
                 "too dark to see anyone - add light in front of you"
                 if mean_luma(frame) < DARK_LUMA
@@ -470,26 +469,17 @@ class Detector:
                 self._ov_conf = None
                 self._metrics = {}
             return
-        # Largest person wins the POC.
-        boxes = res.boxes.xywh.cpu().numpy() if res.boxes is not None else None
-        kpts = res.keypoints.xy.cpu().numpy()
-        idx = 0
-        if boxes is not None and len(boxes) == len(kpts):
-            idx = int(np.argmax(boxes[:, 2] * boxes[:, 3]))
-        confs = None
-        if res.keypoints.conf is not None:
-            confs = res.keypoints.conf.cpu().numpy()
-        mean_conf = key_confidence(confs[idx] if confs is not None else None)
+        kpts, confs, box = found
+        mean_conf = key_confidence(confs)
         with self._lock:
-            self._kpt_hist.append(kpts[idx].copy())
+            self._kpt_hist.append(kpts.copy())
             steady = smooth_keypoints(self._kpt_hist)
             self._ov_kpts = steady
-            self._ov_box = boxes[idx].copy() if boxes is not None else None
-            self._ov_conf = confs[idx].copy() if confs is not None else None
+            self._ov_box = None if box is None else box.copy()
+            self._ov_conf = confs.copy()
             self._metrics = pose_metrics(steady) or {}
-            self._face = face_visible(confs[idx] if confs is not None else None)
-        if confs is None or not keypoints_usable(confs[idx], self.min_conf):
-            box = boxes[idx] if boxes is not None else None
+            self._face = face_visible(confs)
+        if not keypoints_usable(confs, self.min_conf):
             detail = (
                 "too dark to read your pose - add light in front of you"
                 if mean_luma(frame, box) < DARK_LUMA

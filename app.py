@@ -18,11 +18,6 @@ import subprocess
 import threading
 import time
 
-# Ultralytics phones home with usage analytics (no images) unless offline.
-# Must be set before ultralytics is imported. YOLO_OFFLINE=0 re-enables
-# network access, e.g. to download missing model weights.
-os.environ.setdefault("YOLO_OFFLINE", "1")
-
 import yaml
 from flask import Flask, Response, abort, jsonify, render_template, request
 
@@ -87,7 +82,6 @@ print(f"camera: {cam_label} (index {cam_index}) - {cam_reason}", flush=True)
 
 detector = Detector(
     model_name=cfg["inference"]["model"],
-    fallback_model=cfg["inference"]["fallback_model"],
     conf=cfg["inference"]["conf"],
     inference_fps=cfg["inference"]["fps"],
     camera_index=cam_index,
